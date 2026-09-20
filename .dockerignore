@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/.expo
+firmware
+.env
+.env.*
+!.env.example
+.git
+.github
+backups
+docs
+**/*.log

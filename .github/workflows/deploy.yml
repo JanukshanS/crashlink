@@ -1,0 +1,28 @@
+# §5.8.4 - SSH to the VPS and run deploy/deploy.sh.
+#
+# Freeze rule (§5.8.2): no deploys in the final 3 hours before the demo unless
+# fixing a demo-blocking bug. For the competition, running deploy.sh by hand is
+# acceptable - this workflow exists so it is one button afterwards.
+name: deploy
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # A protected environment, so a tag push cannot deploy without a reviewer.
+    environment: production
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            /opt/crashlink/deploy/deploy.sh

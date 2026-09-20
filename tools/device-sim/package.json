@@ -1,0 +1,18 @@
+{
+  "name": "@crashlink/device-sim",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HMAC-signing device simulator CLI (Appendix C). Scaffolded; the simulator scenarios land with the device gateway (Sprint 2).",
+  "scripts": {
+    "sim": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@crashlink/contracts": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

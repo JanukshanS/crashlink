@@ -1,0 +1,52 @@
+# §5.8.3 Option A / §5.8.4 - build the Android APK locally in CI and upload it.
+#
+# Manual only: the app is built in Sprint 3, and §5.8.3 says to build the first
+# APK by hand on Day 1 to surface native issues early.
+name: apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      apiUrl:
+        description: 'EXPO_PUBLIC_API_URL to bake into the build'
+        required: true
+        default: 'https://crashlink.example.com'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - run: npm ci
+
+      - name: Build contracts
+        run: npm run build -w packages/contracts
+
+      - name: Prebuild
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ inputs.apiUrl }}
+        run: npx expo prebuild -p android --clean
+
+      - name: Assemble release
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crashlink-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk

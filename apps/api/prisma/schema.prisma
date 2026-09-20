@@ -1,0 +1,571 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  DRIVER
+  ADMIN
+  GUEST
+}
+
+enum IgnitionState {
+  ON
+  OFF
+  UNKNOWN
+}
+
+enum BikeStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  INACTIVE
+}
+
+enum RentalState {
+  PENDING_SYNC
+  ACTIVE
+  ENDING_SYNC
+  ENDED
+  CANCELLED
+}
+
+enum IncidentType {
+  POSSIBLE_COLLISION
+  POSSIBLE_LOW_SPEED_RIDER_DROP
+  POSSIBLE_ROLLOVER
+  MANUAL_SOS
+  PARKED_BIKE_FALL
+  POSSIBLE_TOWING
+  POSSIBLE_TAMPERING
+  DEVICE_OFFLINE_DURING_RENTAL
+  POSSIBLE_POTHOLE
+  POSSIBLE_DANGEROUS_CORNERING
+}
+
+enum IncidentCategory {
+  EMERGENCY
+  SECURITY
+  INFO
+}
+
+enum IncidentState {
+  OPEN
+  AWAITING_RESPONSE
+  RESOLVED_SAFE
+  ESCALATED
+  CLOSED
+  INFO_RECORDED
+}
+
+enum Decision {
+  NOT_APPLICABLE
+  PENDING
+  SAFE
+  HELP
+  TIMEOUT
+  OFFLINE_FALLBACK
+}
+
+enum DecisionSource {
+  APP
+  DEVICE_BUTTON
+  SERVER_TIMER
+  DEVICE_OFFLINE_TIMER
+}
+
+enum LocationKind {
+  LIVE
+  LAST_KNOWN
+  UNAVAILABLE
+}
+
+enum LocationSource {
+  GPS
+  DEMO
+}
+
+enum PhotoStatus {
+  NOT_REQUESTED
+  PENDING
+  UPLOADING
+  AVAILABLE
+  FAILED
+}
+
+enum ImageState {
+  RESERVED
+  UPLOADING
+  COMPLETE
+  FAILED
+}
+
+enum ResponseChoice {
+  SAFE
+  HELP
+}
+
+enum ResponseSource {
+  APP
+  DEVICE_BUTTON
+}
+
+enum NotificationKind {
+  OWNER_SMS
+  CONTACT_SMS
+  CONTACT_CALL
+  DRIVER_PROMPT
+  OWNER_PUSH
+}
+
+enum NotificationState {
+  REQUESTED
+  QUEUED
+  AT_SUBMITTED
+  NETWORK_CONFIRMED
+  PROVIDER_ACCEPTED
+  CLIENT_RECEIVED
+  RESPONDED
+  FAILED
+  OUTCOME_UNKNOWN
+}
+
+enum CommandType {
+  SET_ASSIGNMENT
+  CLEAR_ASSIGNMENT
+  SET_CONFIG
+  INCIDENT_DECISION
+  DEMO_TRIGGER
+}
+
+enum CommandStatus {
+  QUEUED
+  DELIVERED
+  ACKED
+  REJECTED
+  EXPIRED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  role         Role
+  name         String
+  email        String    @unique
+  phoneE164    String?   @unique @map("phone_e164")
+  passwordHash String    @map("password_hash")
+  language     String    @default("en")
+  isDemo       Boolean   @default(false) @map("is_demo")
+  consentAt    DateTime? @map("consent_at") @db.Timestamptz
+  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  settings          UserSettings?
+  bikes             Bike[]             @relation("BikeOwner")
+  emergencyContacts EmergencyContact[]
+  rentalsAsDriver   Rental[]           @relation("RentalDriver")
+  rentalsAsOwner    Rental[]           @relation("RentalOwner")
+  incidentsAsDriver Incident[]         @relation("IncidentDriver")
+  incidentsAsOwner  Incident[]         @relation("IncidentOwner")
+  responses         DriverResponse[]
+  pushTokens        PushToken[]
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+
+  @@map("users")
+}
+
+model UserSettings {
+  userId         String   @id @map("user_id") @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifySecurity Boolean  @default(true) @map("notify_security")
+  notifyInfo     Boolean  @default(false) @map("notify_info")
+  alarmSound     Boolean  @default(true) @map("alarm_sound")
+  theme          String   @default("system")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("user_settings")
+}
+
+model EmergencyContact {
+  id           String   @id @default(uuid()) @db.Uuid
+  driverId     String   @map("driver_id") @db.Uuid
+  driver       User     @relation(fields: [driverId], references: [id])
+  name         String
+  phoneE164    String   @map("phone_e164")
+  relationship String
+  isCurrent    Boolean  @default(true) @map("is_current")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  rentals Rental[]
+
+  @@index([driverId, isCurrent])
+  @@map("emergency_contacts")
+}
+
+model Device {
+  id              String    @id @default(uuid()) @db.Uuid
+  code            String    @unique
+  secretEnc       String    @map("secret_enc")
+  pairingCodeHash String    @map("pairing_code_hash")
+  firmwareVersion String?   @map("firmware_version")
+  configVersion   Int       @default(1) @map("config_version")
+  appliedConfigVersion Int  @default(0) @map("applied_config_version")
+  config          Json
+  lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz
+  lastHealth      Json?     @map("last_health")
+  lastMode        String?   @map("last_mode")
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  bike      Bike?
+  commands  DeviceCommand[]
+  nonces    DeviceNonce[]
+  incidents Incident[]
+
+  @@map("devices")
+}
+
+model Bike {
+  id                 String          @id @default(uuid()) @db.Uuid
+  ownerId            String          @map("owner_id") @db.Uuid
+  owner              User            @relation("BikeOwner", fields: [ownerId], references: [id])
+  deviceId           String?         @unique @map("device_id") @db.Uuid
+  device             Device?         @relation(fields: [deviceId], references: [id])
+  label              String
+  plateNo            String?         @map("plate_no")
+  status             BikeStatus      @default(AVAILABLE)
+  ignition           IgnitionState   @default(UNKNOWN)
+  ignitionChangedAt  DateTime?       @map("ignition_changed_at") @db.Timestamptz
+  lastLat            Float?          @map("last_lat")
+  lastLon            Float?          @map("last_lon")
+  lastFixAt          DateTime?       @map("last_fix_at") @db.Timestamptz
+  lastSpeedKph       Float?          @map("last_speed_kph")
+  lastLocationSource LocationSource? @map("last_location_source")
+  isDemo             Boolean         @default(false) @map("is_demo")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  rentals        Rental[]
+  locations      LocationSample[]
+  ignitionEvents IgnitionEvent[]
+  incidents      Incident[]
+
+  @@index([ownerId])
+  @@map("bikes")
+}
+
+model Rental {
+  id                  String           @id @default(uuid()) @db.Uuid
+  bikeId              String           @map("bike_id") @db.Uuid
+  bike                Bike             @relation(fields: [bikeId], references: [id])
+  driverId            String           @map("driver_id") @db.Uuid
+  driver              User             @relation("RentalDriver", fields: [driverId], references: [id])
+  ownerId             String           @map("owner_id") @db.Uuid
+  owner               User             @relation("RentalOwner", fields: [ownerId], references: [id])
+  emergencyContactId  String           @map("emergency_contact_id") @db.Uuid
+  emergencyContact    EmergencyContact @relation(fields: [emergencyContactId], references: [id])
+  ownerPhoneSnapshot  String           @map("owner_phone_snapshot")
+  driverNameSnapshot  String           @map("driver_name_snapshot")
+  driverPhoneSnapshot String?          @map("driver_phone_snapshot")
+  contactNameSnapshot String           @map("contact_name_snapshot")
+  contactPhoneSnapshot String          @map("contact_phone_snapshot")
+  state               RentalState      @default(PENDING_SYNC)
+  assignmentVersion   Int              @map("assignment_version")
+  demoOverride        Boolean          @default(false) @map("demo_override")
+  requestedAt         DateTime         @default(now()) @map("requested_at") @db.Timestamptz
+  deviceAckAt         DateTime?        @map("device_ack_at") @db.Timestamptz
+  startedAt           DateTime?        @map("started_at") @db.Timestamptz
+  endRequestedAt      DateTime?        @map("end_requested_at") @db.Timestamptz
+  endedAt             DateTime?        @map("ended_at") @db.Timestamptz
+  distanceMeters      Float            @default(0) @map("distance_meters")
+  lastDistanceLat     Float?           @map("last_distance_lat")
+  lastDistanceLon     Float?           @map("last_distance_lon")
+  lastDistanceAt      DateTime?        @map("last_distance_at") @db.Timestamptz
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  locations      LocationSample[]
+  ignitionEvents IgnitionEvent[]
+  incidents      Incident[]
+
+  @@unique([bikeId, assignmentVersion])
+  @@index([bikeId, state])
+  @@index([driverId, state])
+  @@map("rentals")
+}
+
+model LocationSample {
+  id         BigInt         @id @default(autoincrement())
+  bikeId     String         @map("bike_id") @db.Uuid
+  bike       Bike           @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  rentalId   String?        @map("rental_id") @db.Uuid
+  rental     Rental?        @relation(fields: [rentalId], references: [id])
+  fixAt      DateTime       @map("fix_at") @db.Timestamptz
+  receivedAt DateTime       @default(now()) @map("received_at") @db.Timestamptz
+  lat        Float
+  lon        Float
+  speedKph   Float?         @map("speed_kph")
+  hdop       Float?
+  satellites Int?
+  valid      Boolean
+  source     LocationSource @default(GPS)
+
+  @@unique([bikeId, fixAt])
+  @@index([rentalId, fixAt])
+  @@map("location_samples")
+}
+
+model IgnitionEvent {
+  id         BigInt        @id @default(autoincrement())
+  bikeId     String        @map("bike_id") @db.Uuid
+  bike       Bike          @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  rentalId   String?       @map("rental_id") @db.Uuid
+  rental     Rental?       @relation(fields: [rentalId], references: [id])
+  state      IgnitionState
+  changedAt  DateTime      @map("changed_at") @db.Timestamptz
+  receivedAt DateTime      @default(now()) @map("received_at") @db.Timestamptz
+
+  @@unique([bikeId, changedAt])
+  @@map("ignition_events")
+}
+
+model Incident {
+  id                   String           @id @db.Uuid
+  bikeId               String           @map("bike_id") @db.Uuid
+  bike                 Bike             @relation(fields: [bikeId], references: [id])
+  deviceId             String?          @map("device_id") @db.Uuid
+  device               Device?          @relation(fields: [deviceId], references: [id])
+  rentalId             String?          @map("rental_id") @db.Uuid
+  rental               Rental?          @relation(fields: [rentalId], references: [id])
+  driverId             String?          @map("driver_id") @db.Uuid
+  driver               User?            @relation("IncidentDriver", fields: [driverId], references: [id])
+  ownerId              String           @map("owner_id") @db.Uuid
+  owner                User             @relation("IncidentOwner", fields: [ownerId], references: [id])
+  type                 IncidentType
+  category             IncidentCategory
+  state                IncidentState
+  severityScore        Int?             @map("severity_score")
+  occurredAt           DateTime         @map("occurred_at") @db.Timestamptz
+  receivedAt           DateTime         @default(now()) @map("received_at") @db.Timestamptz
+  timeSource           String           @map("time_source")
+  ignitionAtEvent      IgnitionState    @default(UNKNOWN) @map("ignition_at_event")
+  preEventSpeedKph     Float?           @map("pre_event_speed_kph")
+  locationKind         LocationKind     @map("location_kind")
+  lat                  Float?
+  lon                  Float?
+  fixAt                DateTime?        @map("fix_at") @db.Timestamptz
+  fixAgeSec            Int?             @map("fix_age_sec")
+  locationSource       LocationSource?  @map("location_source")
+  evidence             Json
+  sensorWindow         Json?            @map("sensor_window")
+  assignmentVersion    Int?             @map("assignment_version")
+  ownerPhoneSnapshot   String?          @map("owner_phone_snapshot")
+  driverNameSnapshot   String?          @map("driver_name_snapshot")
+  contactNameSnapshot  String?          @map("contact_name_snapshot")
+  contactPhoneSnapshot String?          @map("contact_phone_snapshot")
+  serverQuestion       Boolean          @default(false) @map("server_question")
+  questionSentAt       DateTime?        @map("question_sent_at") @db.Timestamptz
+  responseDeadlineAt   DateTime?        @map("response_deadline_at") @db.Timestamptz
+  decision             Decision         @default(NOT_APPLICABLE)
+  decisionSource       DecisionSource?  @map("decision_source")
+  decidedAt            DateTime?        @map("decided_at") @db.Timestamptz
+  photoStatus          PhotoStatus      @default(NOT_REQUESTED) @map("photo_status")
+  integrityHash        String?          @map("integrity_hash")
+  ownerAckAt           DateTime?        @map("owner_ack_at") @db.Timestamptz
+  ownerNote            String?          @map("owner_note")
+  closedAt             DateTime?        @map("closed_at") @db.Timestamptz
+  quarantined          Boolean          @default(false)
+  quarantineReason     String?          @map("quarantine_reason")
+  isDemo               Boolean          @default(false) @map("is_demo")
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  image         IncidentImage?
+  responses     DriverResponse[]
+  notifications Notification[]
+
+  @@index([ownerId, occurredAt])
+  @@index([bikeId, occurredAt])
+  @@index([state, responseDeadlineAt])
+  @@index([driverId, occurredAt])
+  @@map("incidents")
+}
+
+model IncidentImage {
+  id             String     @id @default(uuid()) @db.Uuid
+  incidentId     String     @unique @map("incident_id") @db.Uuid
+  incident       Incident   @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  state          ImageState @default(RESERVED)
+  expectedBytes  Int        @map("expected_bytes")
+  receivedBytes  Int        @default(0) @map("received_bytes")
+  chunkSize      Int        @map("chunk_size")
+  sha256Expected String     @map("sha256_expected")
+  sha256Actual   String?    @map("sha256_actual")
+  storageKey     String?    @map("storage_key")
+  mime           String     @default("image/jpeg")
+  failureReason  String?    @map("failure_reason")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  completedAt    DateTime?  @map("completed_at") @db.Timestamptz
+
+  @@map("incident_images")
+}
+
+model DriverResponse {
+  id               String         @id @default(uuid()) @db.Uuid
+  incidentId       String         @map("incident_id") @db.Uuid
+  incident         Incident       @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  choice           ResponseChoice
+  source           ResponseSource
+  responderUserId  String?        @map("responder_user_id") @db.Uuid
+  responder        User?          @relation(fields: [responderUserId], references: [id])
+  idempotencyKey   String         @unique @map("idempotency_key")
+  deviceTime       DateTime?      @map("device_time") @db.Timestamptz
+  serverReceivedAt DateTime       @default(now()) @map("server_received_at") @db.Timestamptz
+  accepted         Boolean
+  rejectReason     String?        @map("reject_reason")
+  syncedToDeviceAt DateTime?      @map("synced_to_device_at") @db.Timestamptz
+
+  @@index([incidentId])
+  @@map("driver_responses")
+}
+
+model Notification {
+  id              String              @id @default(uuid()) @db.Uuid
+  incidentId      String              @map("incident_id") @db.Uuid
+  incident        Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  kind            NotificationKind
+  state           NotificationState   @default(REQUESTED)
+  recipientMasked String?             @map("recipient_masked")
+  requestedAt     DateTime            @default(now()) @map("requested_at") @db.Timestamptz
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  attempts NotificationAttempt[]
+
+  @@unique([incidentId, kind])
+  @@map("notifications")
+}
+
+model NotificationAttempt {
+  id             String            @id @default(uuid()) @db.Uuid
+  notificationId String            @map("notification_id") @db.Uuid
+  notification   Notification      @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  attemptNo      Int               @map("attempt_no")
+  state          NotificationState
+  detail         String?
+  deviceTime     DateTime?         @map("device_time") @db.Timestamptz
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([notificationId, attemptNo, state])
+  @@map("notification_attempts")
+}
+
+model DeviceCommand {
+  id            String        @id @default(uuid()) @db.Uuid
+  deviceId      String        @map("device_id") @db.Uuid
+  device        Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type          CommandType
+  payload       Json
+  incidentId    String?       @map("incident_id") @db.Uuid
+  status        CommandStatus @default(QUEUED)
+  result        Json?
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  deliveredAt   DateTime?     @map("delivered_at") @db.Timestamptz
+  ackedAt       DateTime?     @map("acked_at") @db.Timestamptz
+  expiresAt     DateTime      @map("expires_at") @db.Timestamptz
+
+  @@index([deviceId, status, createdAt])
+  @@map("device_commands")
+}
+
+model DeviceNonce {
+  deviceId  String   @map("device_id") @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nonce     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@id([deviceId, nonce])
+  @@index([createdAt])
+  @@map("device_nonces")
+}
+
+model PushToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  platform   String   @default("android")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz
+
+  @@map("push_tokens")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @map("code_hash")
+  attempts  Int       @default(0)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("password_resets")
+}
+
+model IdempotencyRecord {
+  key        String   @id
+  userId     String?  @map("user_id") @db.Uuid
+  route      String
+  statusCode Int      @map("status_code")
+  response   Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("idempotency_records")
+}
+
+model AuditEvent {
+  id         BigInt   @id @default(autoincrement())
+  actorType  String   @map("actor_type")
+  actorId    String?  @map("actor_id")
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  meta       Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([createdAt])
+  @@map("audit_events")
+}
+
+model ShareLink {
+  id         String    @id @default(uuid()) @db.Uuid
+  incidentId String    @map("incident_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("share_links")
+}

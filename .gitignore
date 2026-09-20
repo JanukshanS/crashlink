@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Expo / Android
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+
+# Firmware secrets (§5.6.7, §5.7.3) — provisioned per device, never committed
+firmware/**/include/secrets.h
+.pio/
+.pioenvs/
+
+# Local data
+backups/
+data/
