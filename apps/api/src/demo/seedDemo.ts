@@ -39,17 +39,35 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * demo" - the bike really does text them.
  */
 export const DEMO_PHONES = {
-  ownerPhone: '+94770000001',
-  driverPhone: '+94770000002',
-  contactPhone: '+94770000003',
+  ownerPhone: '+94765541123',
+  driverPhone: '+94767268555',
+  contactPhone: '+94774115171',
+} as const;
+
+/** The team's demo people. The bike texts these numbers for real. */
+export const DEMO_PEOPLE = {
+  owner: 'Arushan',
+  driver: 'Janukshan',
+  contact: 'Diroshan',
+  contactRelationship: 'Friend',
 } as const;
 
 export const DEMO_ACCOUNTS = {
   admin: 'admin@crashlink.lk',
-  owner: 'owner@demo.lk',
-  driver: 'ravi@demo.lk',
+  owner: 'arushan@gmail.com',
+  driver: 'janukshan@gmail.com',
   guest: 'judge@demo.lk',
 } as const;
+
+/**
+ * Logins used by earlier seeds. They are renamed in place rather than left
+ * behind, so the demo owner keeps its bikes and paired devices (CL-0001 is
+ * unique to one bike) and old rentals keep resolving.
+ */
+const LEGACY_DEMO_EMAILS: Partial<Record<keyof typeof DEMO_ACCOUNTS, string>> = {
+  owner: 'owner@demo.lk',
+  driver: 'ravi@demo.lk',
+};
 
 export const DEMO_DEVICE_CODES = ['CL-0001', 'CL-0002'] as const;
 
@@ -462,11 +480,20 @@ export const seedDemo = async (
     isDemo: false,
   });
 
+  for (const [key, legacy] of Object.entries(LEGACY_DEMO_EMAILS) as [keyof typeof DEMO_ACCOUNTS, string][]) {
+    const target = DEMO_ACCOUNTS[key];
+    const [old, taken] = await Promise.all([
+      prisma.user.findUnique({ where: { email: legacy }, select: { id: true } }),
+      prisma.user.findUnique({ where: { email: target }, select: { id: true } }),
+    ]);
+    if (old && !taken) await prisma.user.update({ where: { id: old.id }, data: { email: target } });
+  }
+
   // Fixed demo logins: M11 removed password reset, so the team must be able to
   // sign in without one.
   const owner = await upsertUser({
     role: 'OWNER',
-    name: 'Nimal Perera',
+    name: DEMO_PEOPLE.owner,
     email: DEMO_ACCOUNTS.owner,
     phone: DEMO.ownerPhone,
     password: 'demo1234',
@@ -475,7 +502,7 @@ export const seedDemo = async (
 
   const driver = await upsertUser({
     role: 'DRIVER',
-    name: 'Ravi Kumar',
+    name: DEMO_PEOPLE.driver,
     email: DEMO_ACCOUNTS.driver,
     phone: DEMO.driverPhone,
     password: 'demo1234',
@@ -498,7 +525,7 @@ export const seedDemo = async (
     where: { driverId: driver.id, isCurrent: true },
   });
   const contact =
-    current && current.phoneE164 === DEMO.contactPhone && current.name === 'Kamala'
+    current && current.phoneE164 === DEMO.contactPhone && current.name === DEMO_PEOPLE.contact
       ? current
       : await prisma.$transaction(async (tx) => {
           await tx.emergencyContact.updateMany({
@@ -508,9 +535,9 @@ export const seedDemo = async (
           return tx.emergencyContact.create({
             data: {
               driverId: driver.id,
-              name: 'Kamala',
+              name: DEMO_PEOPLE.contact,
               phoneE164: DEMO.contactPhone,
-              relationship: 'Mother',
+              relationship: DEMO_PEOPLE.contactRelationship,
               isCurrent: true,
             },
           });

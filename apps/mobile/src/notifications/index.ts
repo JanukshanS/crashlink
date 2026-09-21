@@ -14,10 +14,23 @@
  * tap handling are the same either way, so adding FCM later is a token
  * registration, not a rewrite.
  */
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 import type { IncidentCategory } from '@crashlink/contracts';
+
+type NotificationsModule = typeof import('expo-notifications');
+
+/**
+ * Expo Go (SDK 53+) throws on Android as soon as `expo-notifications` is
+ * imported, so it is required lazily and only outside Expo Go. In Expo Go the
+ * helpers below do nothing. The safety question still arrives through the
+ * socket and the 5 s poll (§2.4), which never depended on a notification.
+ */
+export const notificationsAvailable = Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Notifications: NotificationsModule | null = notificationsAvailable ? require('expo-notifications') : null;
 
 export const CHANNELS = {
   emergency: 'emergency',
@@ -25,7 +38,7 @@ export const CHANNELS = {
   info: 'info',
 } as const;
 
-Notifications.setNotificationHandler({
+Notifications?.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
@@ -36,7 +49,7 @@ Notifications.setNotificationHandler({
 
 /** §2.3.4: three channels with distinct importance, created once at startup. */
 export const registerNotificationChannels = async (): Promise<void> => {
-  if (Platform.OS !== 'android') return;
+  if (Platform.OS !== 'android' || !Notifications) return;
 
   await Notifications.setNotificationChannelAsync(CHANNELS.emergency, {
     name: 'Emergency alerts',
@@ -68,7 +81,7 @@ export type PermissionState = 'granted' | 'denied' | 'undetermined';
 
 /** §2.3.4: a denial is surfaced as a warning card, never silently swallowed. */
 export const requestNotificationPermission = async (): Promise<PermissionState> => {
-  if (!Device.isDevice) return 'undetermined';
+  if (!Device.isDevice || !Notifications) return 'undetermined';
 
   const existing = await Notifications.getPermissionsAsync();
   if (existing.granted) return 'granted';
@@ -101,6 +114,7 @@ export interface IncidentNotificationInput {
 export const showLocalIncidentNotification = async (
   input: IncidentNotificationInput,
 ): Promise<void> => {
+  if (!Notifications) return;
   await Notifications.scheduleNotificationAsync({
     content: {
       title: input.title,
@@ -120,6 +134,7 @@ export const showLocalIncidentNotification = async (
 
 /** Used by the settings screen's "test notification" button (§2.3.7). */
 export const sendTestNotification = async (): Promise<void> => {
+  if (!Notifications) return;
   await Notifications.scheduleNotificationAsync({
     content: {
       title: 'CrashLink test',

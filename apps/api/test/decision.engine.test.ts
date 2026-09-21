@@ -51,7 +51,7 @@ interface Scene {
  */
 const setupActiveRental = async (): Promise<Scene> => {
   const owner = await registerUser(ctx, 'OWNER');
-  const driver = await createReadyDriver(ctx, 'Ravi Kumar');
+  const driver = await createReadyDriver(ctx, 'Janukshan');
   const device = await createDevice(ctx);
   const bikeId = await pairDeviceToBike(ctx, owner, device);
 

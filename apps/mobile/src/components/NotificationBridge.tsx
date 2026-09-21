@@ -41,6 +41,8 @@ export const NotificationBridge: React.FC<{ enabled: boolean }> = ({ enabled }) 
       }
     };
 
+    if (!Notifications) return;
+
     // A tap that launched the app from cold start.
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) route(response.notification.request.content.data);

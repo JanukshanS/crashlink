@@ -204,7 +204,7 @@ describe('Role boundaries (§5.7.2)', () => {
 
   it('lets an owner look a driver up by exact email or phone, and 404s otherwise', async () => {
     const owner = await registerUser(ctx, 'OWNER');
-    const driver = await createReadyDriver(ctx, 'Ravi Kumar');
+    const driver = await createReadyDriver(ctx, 'Janukshan');
 
     const byEmail = await ctx.app.inject({
       method: 'GET',
@@ -212,7 +212,7 @@ describe('Role boundaries (§5.7.2)', () => {
       headers: auth(owner.accessToken),
     });
     expect(byEmail.statusCode).toBe(200);
-    expect(byEmail.json()).toMatchObject({ id: driver.id, name: 'Ravi Kumar', hasEmergencyContact: true, busy: false });
+    expect(byEmail.json()).toMatchObject({ id: driver.id, name: 'Janukshan', hasEmergencyContact: true, busy: false });
     // §5.7.3: the lookup never hands over a full number.
     expect(String(byEmail.json().phoneMasked)).toMatch(/^\+94•••••\d{4}$/);
 
@@ -227,7 +227,7 @@ describe('Role boundaries (§5.7.2)', () => {
 
 describe('GUEST is read-only (§5.4.2, §5.7.2)', () => {
   it('can read the demo owner fleet but is refused every mutation', async () => {
-    const demoOwner = await registerUser(ctx, 'OWNER', { name: 'Nimal Perera' });
+    const demoOwner = await registerUser(ctx, 'OWNER', { name: 'Arushan' });
     await ctx.prisma.user.update({ where: { id: demoOwner.id }, data: { isDemo: true } });
     await createPairedBike(ctx, demoOwner, 'Scooter 1');
 

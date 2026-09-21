@@ -32,8 +32,8 @@ describe('POST /auth/register', () => {
       url: '/api/v1/auth/register',
       payload: {
         role: 'OWNER',
-        name: 'Nimal Perera',
-        email: 'nimal@demo.lk',
+        name: 'Arushan',
+        email: 'arushan@gmail.com',
         phone: '+94771234567',
         password: TEST_PASSWORD,
         consentAccepted: true,
@@ -42,13 +42,13 @@ describe('POST /auth/register', () => {
 
     expect(response.statusCode).toBe(201);
     const body = response.json();
-    expect(body.user).toMatchObject({ role: 'OWNER', email: 'nimal@demo.lk', phone: '+94771234567' });
+    expect(body.user).toMatchObject({ role: 'OWNER', email: 'arushan@gmail.com', phone: '+94771234567' });
     expect(body.expiresIn).toBe(ctx.config.ACCESS_TOKEN_TTL_SEC);
     expect(typeof body.accessToken).toBe('string');
     expect(typeof body.refreshToken).toBe('string');
 
     // §5.7.1: the password is never stored in the clear.
-    const stored = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'nimal@demo.lk' } });
+    const stored = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'arushan@gmail.com' } });
     expect(stored.passwordHash).not.toContain(TEST_PASSWORD);
     expect(stored.passwordHash.startsWith('$2')).toBe(true);
     // FR-AUTH-06: consent is recorded, not assumed.

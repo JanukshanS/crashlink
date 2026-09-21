@@ -320,18 +320,26 @@ export class DeviceMachine {
 
     const graceAt = new Date(deadlineAt.getTime() + this.ctx.config.deadlineGraceSec * 1000);
     let lastSuccessfulPoll: Date | null = null;
+    // Whether the server opened a rider question for this incident. It does not
+    // when the incident is quarantined (FR-INC-06) - then nobody will ever decide.
+    let serverQuestion = true;
 
     for (;;) {
       let polled: { decision: string; commandId: string | null } | null = null;
 
       try {
-        const response = await this.ctx.client.request<{ decision: string; commandId: string | null }>(
+        const response = await this.ctx.client.request<{
+          decision: string;
+          commandId: string | null;
+          responseDeadlineAt: string | null;
+        }>(
           'GET',
           `/d/v1/incidents/${eventId}/control`,
         );
         if (response.status === 200) {
           polled = { decision: response.body.decision, commandId: response.body.commandId };
           lastSuccessfulPoll = this.ctx.client.now();
+          serverQuestion = response.body.responseDeadlineAt !== null;
         }
       } catch {
         // Network down: fall through to the grace check below.
@@ -347,6 +355,16 @@ export class DeviceMachine {
       // D4: offline escalation once the grace period has also passed.
       if (now >= graceAt && (!lastSuccessfulPoll || lastSuccessfulPoll < deadlineAt)) {
         this.ctx.log('  no control response by deadline + grace - escalating locally');
+        return { decision: 'OFFLINE_FALLBACK', commandId: null, local: true };
+      }
+
+      // TODO(spec): §5.3.6 does not say what the device does when the server
+      // reachably answers PENDING with no deadline (no question was opened, e.g.
+      // quarantine). Safest: the rider may be hurt, so fall back to the local
+      // timer exactly as if offline. The server reconciles it without a second
+      // CONTACT_SMS (D8). Firmware must do the same.
+      if (now >= graceAt && !serverQuestion) {
+        this.ctx.log('  server opened no question (quarantined?) - escalating on the local timer');
         return { decision: 'OFFLINE_FALLBACK', commandId: null, local: true };
       }
 

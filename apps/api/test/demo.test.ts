@@ -89,21 +89,21 @@ beforeEach(async () => {
 });
 
 describe('FR-DEMO-01 seed', () => {
-  it('creates the admin, Nimal, Ravi, the contact, the judge and Scooter 1 paired to CL-0001', async () => {
+  it('creates the admin, Arushan, Janukshan, the contact, the judge and Scooter 1 paired to CL-0001', async () => {
     const result = await seedDemo(ctx.prisma, ctx.config, { writeSecretsHeader: false });
 
     const users = await ctx.prisma.user.findMany({ select: { email: true, role: true, name: true } });
     expect(users).toEqual(
       expect.arrayContaining([
         { email: 'admin@crashlink.lk', role: 'ADMIN', name: 'CrashLink Admin' },
-        { email: 'owner@demo.lk', role: 'OWNER', name: 'Nimal Perera' },
-        { email: 'ravi@demo.lk', role: 'DRIVER', name: 'Ravi Kumar' },
+        { email: 'arushan@gmail.com', role: 'OWNER', name: 'Arushan' },
+        { email: 'janukshan@gmail.com', role: 'DRIVER', name: 'Janukshan' },
         { email: 'judge@demo.lk', role: 'GUEST', name: 'Judge (read-only)' },
       ]),
     );
 
     const contact = await ctx.prisma.emergencyContact.findFirstOrThrow({ where: { isCurrent: true } });
-    expect(contact).toMatchObject({ name: 'Kamala', relationship: 'Mother' });
+    expect(contact).toMatchObject({ name: 'Diroshan', relationship: 'Friend' });
 
     const scooter = await ctx.prisma.bike.findFirstOrThrow({ where: { label: 'Scooter 1' }, include: { device: true } });
     expect(scooter.device?.code).toBe('CL-0001');
@@ -111,6 +111,20 @@ describe('FR-DEMO-01 seed', () => {
     // New devices come with credentials, exactly once.
     expect(result.devices.every((device) => device.credentials !== null)).toBe(true);
     expect(result.incidents).toBeGreaterThan(0);
+  });
+
+  it('renames the old demo logins in place, so the owner keeps its bikes and devices', async () => {
+    await seedDemo(ctx.prisma, ctx.config, { writeSecretsHeader: false });
+    const owner = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'arushan@gmail.com' } });
+    // Roll the owner back to the email an earlier seed used.
+    await ctx.prisma.user.update({ where: { id: owner.id }, data: { email: 'owner@demo.lk', name: 'Nimal Perera' } });
+
+    await seedDemo(ctx.prisma, ctx.config, { writeSecretsHeader: false });
+
+    expect(await ctx.prisma.user.findUnique({ where: { email: 'owner@demo.lk' } })).toBeNull();
+    const renamed = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'arushan@gmail.com' } });
+    expect(renamed).toMatchObject({ id: owner.id, name: 'Arushan', phoneE164: '+94765541123' });
+    expect(await ctx.prisma.bike.count({ where: { ownerId: owner.id } })).toBeGreaterThan(0);
   });
 
   it('keeps device secrets on a re-seed, so the real bike is not locked out', async () => {
@@ -137,7 +151,7 @@ describe('FR-DEMO-03 demo reset', () => {
   it('clears demo incidents and rentals, re-seeds, and never touches a real owner\'s data', async () => {
     await seedDemo(ctx.prisma, ctx.config, { writeSecretsHeader: false });
     const scooter = await ctx.prisma.bike.findFirstOrThrow({ where: { label: 'Scooter 1' } });
-    const nimal = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'owner@demo.lk' } });
+    const arushan = await ctx.prisma.user.findUniqueOrThrow({ where: { email: 'arushan@gmail.com' } });
     const secretBefore = (await ctx.prisma.device.findUniqueOrThrow({ where: { code: 'CL-0001' } })).secretEnc;
 
     // A rehearsal incident left open on the demo bike...
@@ -145,7 +159,7 @@ describe('FR-DEMO-03 demo reset', () => {
       data: {
         id: randomUUID(),
         bikeId: scooter.id,
-        ownerId: nimal.id,
+        ownerId: arushan.id,
         type: 'POSSIBLE_COLLISION',
         category: 'EMERGENCY',
         state: 'ESCALATED',
@@ -185,9 +199,9 @@ describe('FR-DEMO-03 demo reset', () => {
     expect(await ctx.prisma.bike.findUnique({ where: { id: realBike.id } })).not.toBeNull();
 
     // Baseline demo history is back, with no open rehearsal state.
-    expect(await ctx.prisma.incident.count({ where: { ownerId: nimal.id } })).toBe(result.seed.incidents);
+    expect(await ctx.prisma.incident.count({ where: { ownerId: arushan.id } })).toBe(result.seed.incidents);
     expect(
-      await ctx.prisma.incident.count({ where: { ownerId: nimal.id, state: { in: ['OPEN', 'AWAITING_RESPONSE', 'ESCALATED'] } } }),
+      await ctx.prisma.incident.count({ where: { ownerId: arushan.id, state: { in: ['OPEN', 'AWAITING_RESPONSE', 'ESCALATED'] } } }),
     ).toBe(0);
 
     // The bikes keep working: device secrets were not rotated.

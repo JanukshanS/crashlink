@@ -36,8 +36,8 @@ beforeEach(async () => {
 
 describe('POST /rentals - assignment preconditions (FR-RENT-01)', () => {
   it('assigns a driver, snapshots the recipients and queues SET_ASSIGNMENT', async () => {
-    const owner = await registerUser(ctx, 'OWNER', { name: 'Nimal Perera' });
-    const driver = await createReadyDriver(ctx, 'Ravi Kumar');
+    const owner = await registerUser(ctx, 'OWNER', { name: 'Arushan' });
+    const driver = await createReadyDriver(ctx, 'Janukshan');
     const { bikeId, deviceId } = await createPairedBike(ctx, owner);
 
     const { statusCode, body } = await assignRental(ctx, owner, bikeId, driver.id);
@@ -46,15 +46,15 @@ describe('POST /rentals - assignment preconditions (FR-RENT-01)', () => {
     // FR-RENT-03: a rental is PENDING_SYNC until the device acks.
     expect(body.state).toBe('PENDING_SYNC');
     expect(body.assignmentVersion).toBe(1);
-    expect(body.snapshot).toMatchObject({ driverName: 'Ravi Kumar', contactName: 'Kamala' });
+    expect(body.snapshot).toMatchObject({ driverName: 'Janukshan', contactName: 'Diroshan' });
     // §5.7.3: the contact number is masked in this response.
     expect(String((body.snapshot as Record<string, string>).contactPhoneMasked)).toMatch(/^\+94•••••\d{4}$/);
 
     const rental = await ctx.prisma.rental.findUniqueOrThrow({ where: { id: body.id as string } });
     expect(rental.ownerPhoneSnapshot).toBe(owner.phone);
-    expect(rental.driverNameSnapshot).toBe('Ravi Kumar');
+    expect(rental.driverNameSnapshot).toBe('Janukshan');
     expect(rental.driverPhoneSnapshot).toBe(driver.phone);
-    expect(rental.contactNameSnapshot).toBe('Kamala');
+    expect(rental.contactNameSnapshot).toBe('Diroshan');
 
     // §5.3.4: the bike is told who to text, and only then can it ack.
     const command = await ctx.prisma.deviceCommand.findFirstOrThrow({
@@ -64,7 +64,7 @@ describe('POST /rentals - assignment preconditions (FR-RENT-01)', () => {
     expect(command.payload).toMatchObject({
       rentalId: rental.id,
       assignmentVersion: 1,
-      contactName: 'Kamala',
+      contactName: 'Diroshan',
       ownerPhone: owner.phone,
     });
 
@@ -98,7 +98,7 @@ describe('POST /rentals - assignment preconditions (FR-RENT-01)', () => {
     expect(refused.statusCode).toBe(409);
 
     await setEmergencyContact(ctx, driver, {
-      name: 'Kamala',
+      name: 'Diroshan',
       phone: '+94712223344',
       relationship: 'Mother',
     });

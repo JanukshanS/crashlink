@@ -28,7 +28,8 @@ import { useEmergencyStore } from '../../src/stores/emergency';
 import { msUntil } from '../../src/stores/realtime';
 import { useEmergencyResponse } from '../../src/api/hooks/useEmergencyResponse';
 import { useIncident } from '../../src/api/hooks/useIncidents';
-import { useActiveRental } from '../../src/api/hooks/useIncidents';
+import { useActiveRental, useEmergencyContact } from '../../src/api/hooks/useIncidents';
+import { DISPLAY_TZ } from '../../src/lib/format';
 import { CallButtons } from '../../src/components/CallButtons';
 import { EMERGENCY_BUTTON_HEIGHT, EMERGENCY_RED, SAFE_GREEN } from '../../src/theme';
 
@@ -40,7 +41,7 @@ const formatTime = (iso: string | null): string => {
   const date = new Date(iso);
   return Number.isNaN(date.getTime())
     ? ''
-    : date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    : date.toLocaleTimeString('en-GB', { timeZone: DISPLAY_TZ, hour: '2-digit', minute: '2-digit' });
 };
 
 export default function EmergencyScreen() {
@@ -145,7 +146,10 @@ export default function EmergencyScreen() {
         return { text: t('emergency.synced'), spinner: false };
       case 'tooLate':
         return {
-          text: t('emergency.tooLate', { time: formatTime(losingDecision?.decidedAt ?? null) }),
+          // The losing-decision payload can arrive without a time; the incident has it.
+          text: t('emergency.tooLate', {
+            time: formatTime(losingDecision?.decidedAt ?? incident.data?.decidedAt ?? null),
+          }),
           spinner: false,
         };
       case 'offline':
@@ -153,10 +157,18 @@ export default function EmergencyScreen() {
       default:
         return null;
     }
-  }, [status, t, losingDecision]);
+  }, [status, t, losingDecision, incident.data?.decidedAt]);
 
   const detail = incident.data;
-  const contactPhone = detail?.contact?.phone ?? null;
+  // §5.7.3 masks the snapshot in driver-facing views, and a masked number
+  // cannot be dialled. The rider's own current contact is their own data (RW
+  // own, §5.7.2), so it is the call target when the snapshot is masked.
+  // TODO(spec): the contact the bike texted is the snapshot; if the rider changed
+  // it mid-rental (FR-DRV-04) this dials the newer one.
+  const ownContact = useEmergencyContact();
+  const snapshotPhone = detail?.contact?.phone ?? null;
+  const contactPhone =
+    snapshotPhone && !snapshotPhone.includes('•') ? snapshotPhone : (ownContact.data?.phone ?? null);
   const ownerPhone = activeRental.data?.rental?.ownerPhone ?? null;
 
   // MANUAL_SOS never asks a question - it tells the rider help is coming.

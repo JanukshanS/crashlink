@@ -38,7 +38,8 @@ export const SettingsScreen: React.FC = () => {
       <Card mode="outlined">
         <Card.Title title={user?.name ?? '—'} subtitle={`${user?.role ?? ''} · ${user?.email ?? ''}`} />
         <Card.Content>
-          <Text variant="bodySmall">{user?.phone ?? t('common.notMeasured')}</Text>
+          <Text variant="bodySmall">{/* No phone on file (e.g. the judge account); "Not measured" is reserved for the battery (M10). */}
+          {user?.phone ?? '—'}</Text>
         </Card.Content>
       </Card>
 

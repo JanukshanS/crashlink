@@ -7,7 +7,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { loadConfig } from '../src/config.js';
-import { DEMO_ACCOUNTS, seedDemo } from '../src/demo/seedDemo.js';
+import { DEMO_ACCOUNTS, DEMO_PEOPLE, seedDemo } from '../src/demo/seedDemo.js';
 
 const main = async (): Promise<void> => {
   const rotate = process.argv.includes('--rotate-device-secrets');
@@ -21,8 +21,8 @@ const main = async (): Promise<void> => {
     console.log('  CrashLink seed complete');
     console.log('  ----------------------------------------------------------------');
     console.log(`  admin    ${DEMO_ACCOUNTS.admin} / ADMIN_SEED_PASSWORD`);
-    console.log(`  owner    ${DEMO_ACCOUNTS.owner} / demo1234   (Nimal Perera)`);
-    console.log(`  driver   ${DEMO_ACCOUNTS.driver} / demo1234   (Ravi Kumar)`);
+    console.log(`  owner    ${DEMO_ACCOUNTS.owner} / demo1234   (${DEMO_PEOPLE.owner})`);
+    console.log(`  driver   ${DEMO_ACCOUNTS.driver} / demo1234   (${DEMO_PEOPLE.driver})`);
     console.log(`  guest    ${DEMO_ACCOUNTS.guest} / demo1234   (read-only)`);
     console.log(`  history  ${result.incidents} demo incidents`);
     console.log('');

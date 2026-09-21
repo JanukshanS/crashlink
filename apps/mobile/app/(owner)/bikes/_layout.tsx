@@ -1,5 +1,7 @@
 import React from 'react';
-import { Stack } from 'expo-router';
+// JS stack, not native: its header honours the owner layout's inset override, so
+// it does not add the status bar a second time under the judge's demo banner.
+import Stack from 'expo-router/js-stack';
 
 export default function BikesLayout() {
   return (

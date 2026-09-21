@@ -8,6 +8,7 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text, useTheme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsReadOnly } from '../../src/stores/auth';
 import { INFO_BLUE } from '../../src/theme';
 
@@ -15,16 +16,19 @@ export default function OwnerLayout() {
   const theme = useTheme();
   const { t } = useTranslation();
   const readOnly = useIsReadOnly();
+  const insets = useSafeAreaInsets();
 
   return (
     <>
       {/* §2.3.1: judges must always know they are looking at seeded data. */}
       {readOnly ? (
-        <View style={[styles.banner, { backgroundColor: INFO_BLUE }]}>
+        <View style={[styles.banner, { backgroundColor: INFO_BLUE, paddingTop: insets.top + 6 }]}>
           <Text style={styles.bannerText}>{t('auth.demoBanner')}</Text>
         </View>
       ) : null}
 
+      {/* The banner already clears the status bar, so headers below it must not add the inset again. */}
+      <SafeAreaInsetsContext.Provider value={readOnly ? { ...insets, top: 0 } : insets}>
       <Tabs
         screenOptions={{
           headerShown: true,
@@ -78,6 +82,7 @@ export default function OwnerLayout() {
           }}
         />
       </Tabs>
+      </SafeAreaInsetsContext.Provider>
     </>
   );
 }

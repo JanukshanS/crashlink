@@ -18,7 +18,7 @@ npm run dev -w apps/api
 npm run start -w apps/mobile
 ```
 
-Demo logins (from the seed): `owner@demo.lk`, `ravi@demo.lk`, `judge@demo.lk`,
+Demo logins (from the seed): `arushan@gmail.com`, `janukshan@gmail.com`, `judge@demo.lk`,
 all with password `demo1234`. "Continue as Judge" logs into the read-only guest
 account without typing anything.
 

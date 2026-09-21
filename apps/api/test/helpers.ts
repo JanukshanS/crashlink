@@ -225,10 +225,10 @@ export const pairDeviceToBike = async (
 };
 
 /** A driver who already has a current emergency contact, ready to be assigned. */
-export const createReadyDriver = async (ctx: TestContext, name = 'Ravi Kumar'): Promise<TestUser> => {
+export const createReadyDriver = async (ctx: TestContext, name = 'Janukshan'): Promise<TestUser> => {
   const driver = await registerUser(ctx, 'DRIVER', { name });
   await setEmergencyContact(ctx, driver, {
-    name: 'Kamala',
+    name: 'Diroshan',
     phone: uniquePhone(),
     relationship: 'Mother',
   });

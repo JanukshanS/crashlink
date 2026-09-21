@@ -31,7 +31,7 @@ export type ScenarioName =
 export const SCENARIOS: Record<ScenarioName, string> = {
   'heartbeat-loop': 'Telemetry only: heartbeats, GPS trace, command pickup.',
   'collision-safe': 'Confirmed fall, rider presses Safe on the bike inside the window.',
-  'collision-timeout': 'Confirmed fall, nobody answers - server TIMEOUT, contact SMS.',
+  'collision-timeout': 'Confirmed fall, waits for the server: TIMEOUT + contact SMS, or SAFE if the rider answers in the app.',
   'collision-help': 'Confirmed fall, rider answers Need help from the app or the bike.',
   'offline-fallback': 'Incident reported late: the bike escalated on its own 60 s timer.',
   pothole: 'INFO event batched on a heartbeat. No SMS, no question.',
@@ -217,9 +217,13 @@ export const runScenario = async (name: ScenarioName, ctx: ScenarioContext): Pro
           await machine.reportSms(eventId, 'CONTACT_SMS', 'QUEUED');
           await machine.reportSms(eventId, 'CONTACT_SMS', 'AT_SUBMITTED', 1, '+CMGS: 24');
           machine.state = 'ESCALATED';
+        } else {
+          // The rider answered SAFE in the app before the deadline.
+          machine.state = 'RESOLVED';
         }
 
-        if (decision.commandId) await machine.ackDecision(eventId, decision.commandId, 'ESCALATED');
+        const localState = machine.state === 'RESOLVED' ? 'RESOLVED' : 'ESCALATED';
+        if (decision.commandId) await machine.ackDecision(eventId, decision.commandId, localState);
       });
       break;
     }

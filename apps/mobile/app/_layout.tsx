@@ -7,8 +7,9 @@
  * screen so the safety question can interrupt whatever the rider is looking at.
  */
 import React, { useEffect, useState } from 'react';
-import { AppState, Platform, useColorScheme, type AppStateStatus } from 'react-native';
-import { Stack } from 'expo-router';
+import { AppState, LogBox, Platform, useColorScheme, type AppStateStatus } from 'react-native';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import type { MD3Theme } from 'react-native-paper';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -25,6 +26,30 @@ import { SocketProvider } from '../src/components/SocketProvider';
 import { NotificationBridge } from '../src/components/NotificationBridge';
 import { EmergencyWatcher } from '../src/components/EmergencyWatcher';
 import { registerNotificationChannels } from '../src/notifications';
+
+/**
+ * React Navigation draws headers, tab bars and screen backgrounds itself. Left
+ * on its default light theme it paints a light page and dark-on-dark header
+ * titles under Paper's dark theme, so it is derived from the Paper theme.
+ */
+const navigationTheme = (paper: MD3Theme, dark: boolean) => {
+  const base = dark ? DarkTheme : DefaultTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: paper.colors.primary,
+      background: paper.colors.background,
+      card: paper.colors.surface,
+      text: paper.colors.onSurface,
+      border: paper.colors.outlineVariant,
+      notification: paper.colors.error,
+    },
+  };
+};
+
+// Raised inside expo-router's JS stack (bikes/incidents), not by app code; dev-only.
+LogBox.ignoreLogs(['InteractionManager has been deprecated']);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +110,9 @@ export default function RootLayout() {
           }}
         >
           <PaperProvider theme={scheme === 'dark' ? darkTheme : lightTheme}>
+            <ThemeProvider
+              value={navigationTheme(scheme === 'dark' ? darkTheme : lightTheme, scheme === 'dark')}
+            >
             <StatusBar style="auto" />
             <AuthGate>
               <SocketProvider>
@@ -107,6 +135,7 @@ export default function RootLayout() {
                 </Stack>
               </SocketProvider>
             </AuthGate>
+            </ThemeProvider>
           </PaperProvider>
         </PersistQueryClientProvider>
       </SafeAreaProvider>

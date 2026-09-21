@@ -307,7 +307,7 @@ describe('§5.3.4 commands', () => {
     expect(commands).toHaveLength(1);
     expect(commands[0]?.type).toBe('SET_ASSIGNMENT');
     // The bike is given exactly the numbers it will text.
-    expect(commands[0]?.payload).toMatchObject({ rentalId, contactName: 'Kamala' });
+    expect(commands[0]?.payload).toMatchObject({ rentalId, contactName: 'Diroshan' });
 
     // Still PENDING_SYNC until the device says it persisted the snapshot.
     expect((await ctx.prisma.rental.findUniqueOrThrow({ where: { id: rentalId } })).state).toBe('PENDING_SYNC');
@@ -447,7 +447,8 @@ describe('§5.3.7 notification reporting', () => {
 });
 
 describe('§4.4.3 chunked image upload', () => {
-  const uploadScene = async () => {
+  /** `method` is PUT for §5.3.5, or POST as the SIM800L sends it (Appendix E.1). */
+  const uploadScene = async (method: 'PUT' | 'POST' = 'PUT') => {
     const owner = await registerUser(ctx, 'OWNER');
     const driver = await createReadyDriver(ctx);
     const device = await createDevice(ctx);
@@ -462,9 +463,9 @@ describe('§4.4.3 chunked image upload', () => {
     });
 
     const eventId = randomUUID();
-    await ctx.app.inject(
+    const upsert = await ctx.app.inject(
       signedRequest(ctx, device, {
-        method: 'PUT',
+        method,
         path: `/d/v1/incidents/${eventId}`,
         body: incidentBody(ctx, {
           eventId,
@@ -473,6 +474,7 @@ describe('§4.4.3 chunked image upload', () => {
         }),
       }),
     );
+    expect(upsert.statusCode).toBe(200);
 
     return { owner, device, eventId };
   };
@@ -483,6 +485,7 @@ describe('§4.4.3 chunked image upload', () => {
     eventId: string,
     image: Buffer,
     declaredSha: string,
+    method: 'PUT' | 'POST' = 'PUT',
   ) => {
     const chunkSize = 2048;
 
@@ -502,7 +505,7 @@ describe('§4.4.3 chunked image upload', () => {
       const chunk = image.subarray(offset, Math.min(offset + chunkSize, image.length));
       const put = await ctx.app.inject(
         signedRequest(ctx, device, {
-          method: 'PUT',
+          method,
           path: `/d/v1/images/${sessionId}/chunks/${offset}`,
           rawBody: chunk,
         }),
@@ -565,6 +568,18 @@ describe('§4.4.3 chunked image upload', () => {
     // ...and an expired one too.
     ctx.clock.advanceSeconds(ctx.config.SIGNED_URL_TTL_SEC + 10);
     expect((await ctx.app.inject({ method: 'GET', url: signedUrl })).statusCode).toBe(404);
+  });
+
+  it('accepts POST for the incident and every chunk, because the SIM800L cannot send PUT', async () => {
+    const { eventId, device } = await uploadScene('POST');
+    expect(await ctx.prisma.incident.count({ where: { id: eventId } })).toBe(1);
+
+    const image = Buffer.concat([Buffer.from([0xff, 0xd8]), randomBytes(5000), Buffer.from([0xff, 0xd9])]);
+    const sha = createHash('sha256').update(image).digest('hex');
+    const { complete } = await upload(device, eventId, image, sha, 'POST');
+
+    expect(complete.json()).toMatchObject({ state: 'COMPLETE', sha256: sha });
+    expect((await ctx.prisma.incident.findUniqueOrThrow({ where: { id: eventId } })).photoStatus).toBe('AVAILABLE');
   });
 
   it('fails the upload when the SHA-256 does not match', async () => {

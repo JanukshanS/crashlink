@@ -37,9 +37,9 @@ beforeEach(async () => {
 describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
   it('leaves the rental snapshot untouched and says the change applies to the next rental', async () => {
     const owner = await registerUser(ctx, 'OWNER');
-    const driver = await registerUser(ctx, 'DRIVER', { name: 'Ravi Kumar' });
+    const driver = await registerUser(ctx, 'DRIVER', { name: 'Janukshan' });
     await setEmergencyContact(ctx, driver, {
-      name: 'Kamala',
+      name: 'Diroshan',
       phone: '+94712223344',
       relationship: 'Mother',
     });
@@ -49,7 +49,7 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
     const rentalId = body.id as string;
 
     const before = await ctx.prisma.rental.findUniqueOrThrow({ where: { id: rentalId } });
-    expect(before.contactNameSnapshot).toBe('Kamala');
+    expect(before.contactNameSnapshot).toBe('Diroshan');
     expect(before.contactPhoneSnapshot).toBe('+94712223344');
 
     // The driver changes their emergency contact mid-rental.
@@ -63,7 +63,7 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
     expect(updated.body.appliesTo).toBe('NEXT_RENTAL');
 
     const after = await ctx.prisma.rental.findUniqueOrThrow({ where: { id: rentalId } });
-    expect(after.contactNameSnapshot).toBe('Kamala');
+    expect(after.contactNameSnapshot).toBe('Diroshan');
     expect(after.contactPhoneSnapshot).toBe('+94712223344');
     expect(after.driverNameSnapshot).toBe(before.driverNameSnapshot);
     expect(after.ownerPhoneSnapshot).toBe(before.ownerPhoneSnapshot);
@@ -76,20 +76,20 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
       headers: auth(owner.accessToken),
     });
     expect(detail.json().snapshot).toMatchObject({
-      contactName: 'Kamala',
+      contactName: 'Diroshan',
       contactPhone: '+94712223344',
     });
 
     // And the bike was never told about the new number.
     const commands = await ctx.prisma.deviceCommand.findMany({ where: { deviceId } });
     expect(commands).toHaveLength(1);
-    expect(commands[0]?.payload).toMatchObject({ contactName: 'Kamala', contactPhone: '+94712223344' });
+    expect(commands[0]?.payload).toMatchObject({ contactName: 'Diroshan', contactPhone: '+94712223344' });
   });
 
   it('keeps the old contact row so the historic snapshot stays resolvable', async () => {
     const driver = await registerUser(ctx, 'DRIVER');
     await setEmergencyContact(ctx, driver, {
-      name: 'Kamala',
+      name: 'Diroshan',
       phone: '+94712223344',
       relationship: 'Mother',
     });
@@ -105,7 +105,7 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
       orderBy: { createdAt: 'asc' },
     });
     expect(all).toHaveLength(2);
-    expect(all[0]).toMatchObject({ name: 'Kamala', isCurrent: false });
+    expect(all[0]).toMatchObject({ name: 'Diroshan', isCurrent: false });
     expect(all[1]).toMatchObject({ name: 'Sunil', isCurrent: true });
 
     const current = await ctx.app.inject({
@@ -146,7 +146,7 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
 
   it('does not follow a driver renaming their account either', async () => {
     const owner = await registerUser(ctx, 'OWNER');
-    const driver = await createReadyDriver(ctx, 'Ravi Kumar');
+    const driver = await createReadyDriver(ctx, 'Janukshan');
     const { bikeId } = await createPairedBike(ctx, owner);
 
     const { body } = await assignRental(ctx, owner, bikeId, driver.id);
@@ -155,11 +155,11 @@ describe('Emergency contact edits during an open rental (FR-DRV-04)', () => {
       method: 'PATCH',
       url: '/api/v1/me',
       headers: auth(driver.accessToken),
-      payload: { name: 'Ravi K.', phone: '+94700000009' },
+      payload: { name: 'Janukshan K.', phone: '+94700000009' },
     });
 
     const rental = await ctx.prisma.rental.findUniqueOrThrow({ where: { id: body.id as string } });
-    expect(rental.driverNameSnapshot).toBe('Ravi Kumar');
+    expect(rental.driverNameSnapshot).toBe('Janukshan');
     expect(rental.driverPhoneSnapshot).toBe(driver.phone);
   });
 });

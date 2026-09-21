@@ -88,7 +88,14 @@ export const registerDeviceRoutes = async (
   });
 
   // --- §5.3.5 incident upsert ----------------------------------------------
-  scope.put<{ Params: { eventId: string } }>('/incidents/:eventId', signed, async (request, reply) => {
+  // PUT per §5.3.5, and POST too: the SIM800L HTTP stack (AT+HTTPACTION) can
+  // only GET/POST/HEAD, and Appendix E.1 (proven hardware) overrides §5.3. The
+  // method is part of the signed canonical string, so each is signed as sent.
+  scope.route<{ Params: { eventId: string } }>({
+    method: ['PUT', 'POST'],
+    url: '/incidents/:eventId',
+    ...signed,
+    handler: async (request, reply) => {
     const device = requireDevice(request);
     const eventId = UuidSchema.parse(request.params.eventId);
     const body = IncidentUpsertRequestSchema.parse(jsonBody(request.rawBody));
@@ -106,6 +113,7 @@ export const registerDeviceRoutes = async (
       configVersion: result.configVersion,
       commands: result.commands,
     });
+    },
   });
 
   // --- §5.3.6 control poll, decision ack, local button ----------------------
@@ -180,10 +188,12 @@ export const registerDeviceRoutes = async (
     },
   );
 
-  scope.put<{ Params: { sessionId: string; offset: string } }>(
-    '/images/:sessionId/chunks/:offset',
-    signed,
-    async (request, reply) => {
+  // PUT per §4.4.3, POST for the SIM800L (see the incident upsert above).
+  scope.route<{ Params: { sessionId: string; offset: string } }>({
+    method: ['PUT', 'POST'],
+    url: '/images/:sessionId/chunks/:offset',
+    ...signed,
+    handler: async (request, reply) => {
       const device = requireDevice(request);
       const sessionId = UuidSchema.parse(request.params.sessionId);
 
@@ -207,7 +217,7 @@ export const registerDeviceRoutes = async (
 
       return reply.send({ ...result, serverTime: toIsoRequired(clock.now()) });
     },
-  );
+  });
 
   scope.post<{ Params: { sessionId: string } }>(
     '/images/:sessionId/complete',

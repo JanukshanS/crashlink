@@ -15,7 +15,14 @@ import { BarChart } from 'react-native-gifted-charts';
 import { Text, useTheme } from 'react-native-paper';
 import type { IncidentsTimeseriesItem } from '@crashlink/contracts';
 import { CATEGORY_COLORS } from '../../theme';
-import { formatDayKey } from '../../lib/format';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "21 Sep" - en-GB's "21 Sept" is one character too wide for a 6-inch axis. */
+const shortDay = (key: string): string => {
+  const [, month, day] = key.split('-').map(Number) as [number, number, number];
+  return `${day} ${MONTHS[month - 1]}`;
+};
 
 const Y_AXIS_WIDTH = 28;
 const EDGE = 6;
@@ -48,13 +55,15 @@ export const DailyStackedBars: React.FC<{ items: IncidentsTimeseriesItem[]; heig
     if (next !== width) setWidth(next);
   };
 
-  const { data, barWidth, spacing, axis, totals } = useMemo(() => {
+  const { data, barWidth, spacing, labelWidth, axis, totals } = useMemo(() => {
     const n = Math.max(1, items.length);
     const plot = Math.max(0, width - Y_AXIS_WIDTH - EDGE * 2);
     const slot = plot / n;
     const bar = Math.max(3, Math.floor(slot * 0.62));
     const gap = Math.max(1, slot - bar);
     const labelEvery = Math.max(1, Math.ceil(n / MAX_LABELS));
+    // Room for "21 Sep" without ellipsis, never wider than the gap to the next label.
+    const labelWidth = Math.max(36, Math.min(56, Math.floor(slot * labelEvery)));
 
     const categoryTotals = { EMERGENCY: 0, SECURITY: 0, INFO: 0 };
     let dayMax = 0;
@@ -64,10 +73,14 @@ export const DailyStackedBars: React.FC<{ items: IncidentsTimeseriesItem[]; heig
       dayMax = Math.max(dayMax, dayTotal);
       for (const category of CATEGORIES) categoryTotals[category] += item[category];
 
-      // Label the last day too, so "today" is always anchored.
-      const labelled = index % labelEvery === 0 || index === items.length - 1;
+      // Label the last day too, so "today" is always anchored - and drop a
+      // regular label that would sit on top of it.
+      const last = items.length - 1;
+      const labelled = index === last || (index % labelEvery === 0 && last - index >= labelEvery);
       return {
-        label: labelled ? formatDayKey(item.date) : '',
+        label: labelled ? shortDay(item.date) : '',
+        // Per item: gifted-charts ignores the chart-level labelWidth for stacked bars.
+        labelWidth,
         stacks: CATEGORIES.filter((category) => item[category] > 0).map(
           (category): { value: number; color: string } => ({
             value: item[category],
@@ -86,6 +99,7 @@ export const DailyStackedBars: React.FC<{ items: IncidentsTimeseriesItem[]; heig
       data: stacked,
       barWidth: bar,
       spacing: gap,
+      labelWidth,
       axis: niceAxis(dayMax),
       totals: categoryTotals,
     };
@@ -111,7 +125,7 @@ export const DailyStackedBars: React.FC<{ items: IncidentsTimeseriesItem[]; heig
           rulesColor={theme.colors.outlineVariant}
           yAxisTextStyle={[styles.axisText, { color: theme.colors.onSurfaceVariant }]}
           xAxisLabelTextStyle={[styles.axisText, { color: theme.colors.onSurfaceVariant }]}
-          labelWidth={44}
+          labelWidth={labelWidth}
           barBorderRadius={2}
           disableScroll
           isAnimated={false}

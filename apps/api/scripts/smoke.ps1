@@ -70,11 +70,11 @@ Step 'database reachable' 'ok' $health.db
 
 # --- auth -------------------------------------------------------------------
 $owner = Invoke-RestMethod -Uri "$api/auth/login" -Method POST -ContentType 'application/json' `
-    -Body (@{ identifier = 'owner@demo.lk'; password = 'demo1234' } | ConvertTo-Json)
+    -Body (@{ identifier = 'arushan@gmail.com'; password = 'demo1234' } | ConvertTo-Json)
 Step 'owner logs in' 'OWNER' $owner.user.role
 
 $driver = Invoke-RestMethod -Uri "$api/auth/login" -Method POST -ContentType 'application/json' `
-    -Body (@{ identifier = 'ravi@demo.lk'; password = 'demo1234' } | ConvertTo-Json)
+    -Body (@{ identifier = 'janukshan@gmail.com'; password = 'demo1234' } | ConvertTo-Json)
 Step 'driver logs in' 'DRIVER' $driver.user.role
 
 $ownerHdr  = @{ Authorization = "Bearer $($owner.accessToken)" }
@@ -102,7 +102,7 @@ if (-not $bike) {
 }
 
 # --- driver lookup ----------------------------------------------------------
-$lookup = Invoke-RestMethod -Uri "$api/drivers/lookup?q=ravi@demo.lk" -Headers $ownerHdr
+$lookup = Invoke-RestMethod -Uri "$api/drivers/lookup?q=janukshan@gmail.com" -Headers $ownerHdr
 # A masked number keeps only the last 4 digits, so it is never a bare E.164.
 Step 'driver lookup masks the phone' $true ($lookup.phoneMasked -notmatch '^\+\d+$')
 Step 'driver has an emergency contact' $true $lookup.hasEmergencyContact

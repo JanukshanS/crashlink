@@ -20,7 +20,21 @@ const configuredUrl =
   // Android emulator's alias for the host machine.
   'http://10.0.2.2:3000';
 
-export const API_BASE_URL = configuredUrl.replace(/\/$/, '');
+/**
+ * Development only: a `localhost` API URL means "the machine running Metro".
+ * A phone on USB (adb reverse) loads the bundle from 127.0.0.1 and localhost
+ * works; a phone on Wi-Fi loads it from the LAN IP, where its own localhost is
+ * itself. Using Metro's host serves both from one bundle. Release builds use
+ * the configured URL unchanged.
+ */
+const resolveDevUrl = (url: string): string => {
+  if (!__DEV__) return url;
+  const metroHost = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (!metroHost || metroHost === 'localhost' || metroHost === '127.0.0.1') return url;
+  return url.replace(/\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/, `//${metroHost}`);
+};
+
+export const API_BASE_URL = resolveDevUrl(configuredUrl).replace(/\/$/, '');
 export const API_V1 = `${API_BASE_URL}/api/v1`;
 
 export class ApiError extends Error {

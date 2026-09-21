@@ -99,7 +99,7 @@ const createEndedRental = async (input: {
     },
   });
   const contact = await ctx.prisma.emergencyContact.create({
-    data: { driverId: driver.id, name: 'Kamala', phoneE164: '+94771112222', relationship: 'Mother' },
+    data: { driverId: driver.id, name: 'Diroshan', phoneE164: '+94771112222', relationship: 'Mother' },
   });
   const version = (await ctx.prisma.rental.count({ where: { bikeId: input.bikeId } })) + 1;
 
@@ -111,7 +111,7 @@ const createEndedRental = async (input: {
       emergencyContactId: contact.id,
       ownerPhoneSnapshot: '+94770000001',
       driverNameSnapshot: 'Rider',
-      contactNameSnapshot: 'Kamala',
+      contactNameSnapshot: 'Diroshan',
       contactPhoneSnapshot: '+94771112222',
       state: 'ENDED',
       assignmentVersion: version,
