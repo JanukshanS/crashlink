@@ -1,0 +1,59 @@
+# CrashLink on a server that already runs Dokploy (Traefik owns :80/:443).
+#
+#   cd /opt/crashlink/deploy && docker compose -p crashlink -f docker-compose.vps.yml --env-file ../.env up -d --build
+#
+# Publishes no host ports - Traefik reaches the API over dokploy-network as
+# `crashlink-api`; routing lives in /etc/dokploy/traefik/dynamic/crashlink.yml
+# (template: deploy/traefik/crashlink.yml). Postgres stays on a private network.
+name: crashlink
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      IMAGE_DIR: /data/images
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - images:/data/images
+    networks:
+      internal: {}
+      dokploy-network:
+        aliases: [crashlink-api]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  internal: {}
+  dokploy-network:
+    external: true
+
+volumes:
+  pgdata:
+  images:

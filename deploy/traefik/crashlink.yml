@@ -1,0 +1,30 @@
+# Traefik (Dokploy) route file for CrashLink - copy to /etc/dokploy/traefik/dynamic/crashlink.yml.
+# Additive: touches no other app's routers. Replace the host if the server changes.
+#
+#   http://HOST/d/...   device gateway, plain HTTP (the SIM800L cannot do modern TLS)
+#   http://HOST/...     redirected to HTTPS
+#   https://HOST/...    app API + Socket.IO, Let's Encrypt via Dokploy's resolver
+http:
+  routers:
+    crashlink-device:
+      rule: Host(`169-58-147-190.sslip.io`) && PathPrefix(`/d/`)
+      entryPoints: [web]
+      service: crashlink-api
+      priority: 100
+    crashlink-http:
+      rule: Host(`169-58-147-190.sslip.io`)
+      entryPoints: [web]
+      service: crashlink-api
+      middlewares: [redirect-to-https]
+    crashlink-https:
+      rule: Host(`169-58-147-190.sslip.io`)
+      entryPoints: [websecure]
+      service: crashlink-api
+      tls:
+        certResolver: letsencrypt
+  services:
+    crashlink-api:
+      loadBalancer:
+        servers:
+          - url: http://crashlink-api:3000
+        passHostHeader: true

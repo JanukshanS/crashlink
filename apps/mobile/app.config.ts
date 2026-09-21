@@ -75,7 +75,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     apiUrl: API_URL,
     router: {},
-    eas: { projectId: undefined },
+    eas: { projectId: 'cd1a0384-24af-4693-8713-344d46aef8f8' },
   },
 
   experiments: {
