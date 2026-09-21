@@ -12,6 +12,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'CrashLink',
   slug: 'crashlink',
+  owner: 'janukshan',
   version: '1.0.0',
   orientation: 'portrait',
   scheme: 'crashlink',

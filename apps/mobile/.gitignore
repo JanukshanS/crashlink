@@ -9,3 +9,6 @@ dist/
 
 expo-env.d.ts
 # @end expo-cli
+# Android signing key (EAS local credentials) - never commit
+credentials/
+credentials.json

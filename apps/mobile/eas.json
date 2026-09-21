@@ -6,13 +6,23 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://169-58-147-190.sslip.io" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://169-58-147-190.sslip.io"
+      },
+      "credentialsSource": "local"
     },
     "production": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://169-58-147-190.sslip.io" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://169-58-147-190.sslip.io"
+      },
+      "credentialsSource": "local"
     }
   }
 }
