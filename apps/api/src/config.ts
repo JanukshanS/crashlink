@@ -44,7 +44,8 @@ const EnvSchema = z.object({
   IMAGE_DIR: z.string().default('/data/images'),
   IMAGE_MAX_BYTES: z.coerce.number().int().positive().default(204800),
   IMAGE_CHUNK_MAX_BYTES: z.coerce.number().int().positive().default(8192),
-  SIGNED_URL_TTL_SEC: z.coerce.number().int().positive().default(300),
+  // §5.7.1: signed image URLs expire in at most 5 minutes.
+  SIGNED_URL_TTL_SEC: z.coerce.number().int().positive().max(300).default(300),
 
   RETENTION_LOCATIONS_DAYS: z.coerce.number().int().positive().default(30),
   RETENTION_IMAGES_DAYS: z.coerce.number().int().positive().default(90),

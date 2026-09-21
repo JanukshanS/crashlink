@@ -66,7 +66,10 @@ export const INCIDENT_TYPE_LABELS: Record<IncidentType, string> = {
   POSSIBLE_LOW_SPEED_RIDER_DROP: 'Possible low-speed rider drop',
   POSSIBLE_ROLLOVER: 'Possible rollover',
   MANUAL_SOS: 'SOS pressed by rider',
-  PARKED_BIKE_FALL: 'Parked bike fell over',
+  // TODO(spec): Appendix D prints "Parked bike fell over", but NFR-04 and the
+  // pinned decisions require "Possible" on every label except SOS and
+  // device-offline. It is still a sensor inference, so NFR-04 wins.
+  PARKED_BIKE_FALL: 'Possible parked bike fall',
   POSSIBLE_TOWING: 'Possible towing / unauthorised movement',
   POSSIBLE_TAMPERING: 'Possible device tampering',
   DEVICE_OFFLINE_DURING_RENTAL: 'Device stopped reporting during rental',

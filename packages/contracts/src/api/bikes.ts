@@ -38,7 +38,12 @@ export type PairDeviceRequest = z.infer<typeof PairDeviceRequestSchema>;
 export const BikeDetailDtoSchema = BikeSummaryDtoSchema.extend({
   health: DeviceHealthDtoSchema.nullable(),
   config: DeviceConfigSchema.nullable(),
+  /** §5.6.5 riding time today (TZ_DISPLAY day), from ignition_events. */
   ridingSecToday: z.number().int(),
+  /** Parked time today. Not in the §5.4.4 example; added for the riding/parked chart. */
+  parkedSecToday: z.number().int(),
+  /** Time today before the first known ignition state - never guessed. */
+  unknownSecToday: z.number().int(),
   parkedSinceSec: z.number().int().nullable(),
 });
 export type BikeDetailDto = z.infer<typeof BikeDetailDtoSchema>;

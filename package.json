@@ -1,10 +1,14 @@
 {
   "name": "crashlink",
   "private": true,
-  "workspaces": ["packages/*", "apps/*", "tools/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
   "scripts": {
     "build": "npm run build -w packages/contracts && npm run build -w apps/api",
-    "test": "npm test -w apps/api",
+    "test": "npm test -w apps/api && npm test -w apps/mobile",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "demo:reset": "npm run demo:reset -w apps/api",
     "demo:check": "npm run demo:check -w apps/api"

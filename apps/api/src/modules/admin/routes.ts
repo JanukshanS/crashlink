@@ -1,10 +1,9 @@
 /**
  * §5.4.8 Admin routes.
  *
- * Implemented here: device provisioning, listing, revoke, and the user list.
- * `GET /admin/health` reports worker state, which arrives with the workers in a
- * later sprint, and the `/demo/*` routes belong with the simulator - neither is
- * stubbed, so nothing claims a capability that does not exist yet.
+ * Implemented here: device provisioning, listing, revoke, the user list and
+ * `GET /admin/health` (FR-ADM-01, NFR-11). The `/demo/*` routes are served by
+ * the `demo:reset` / `demo:check` CLIs instead and are not stubbed here.
  */
 import type { FastifyInstance } from 'fastify';
 import { ListAdminUsersQuerySchema, ProvisionDeviceRequestSchema } from '@crashlink/contracts';
@@ -13,6 +12,8 @@ import { notFound } from '../../lib/errors.js';
 import { toIso } from '../../lib/time.js';
 import { toUserDto } from '../auth/service.js';
 import { ProvisioningService } from './provisioning.js';
+import { deviceOnlineState } from '../bikes/service.js';
+import { API_VERSION } from '../../version.js';
 import type { AppDeps } from '../../app.js';
 
 export const registerAdminRoutes = async (app: FastifyInstance, deps: AppDeps): Promise<void> => {
@@ -64,6 +65,50 @@ export const registerAdminRoutes = async (app: FastifyInstance, deps: AppDeps): 
       return reply.status(204).send();
     },
   );
+
+  /**
+   * FR-ADM-01 / NFR-11: DB, worker last-run and lag, stale devices, pending
+   * commands. `staleDevices` lists paired devices that are not ONLINE - an
+   * unpaired device in a drawer is not a problem worth flagging.
+   */
+  app.get('/admin/health', { preHandler: adminOnly }, async (_request, reply) => {
+    const now = deps.clock.now();
+
+    let db: 'ok' | 'error' = 'ok';
+    try {
+      await app.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      db = 'error';
+    }
+
+    const [paired, pendingCommands] = await Promise.all([
+      app.prisma.bike.findMany({
+        where: { deviceId: { not: null } },
+        select: { ignition: true, device: { select: { code: true, lastSeenAt: true, config: true, revokedAt: true } } },
+      }),
+      app.prisma.deviceCommand.count({
+        where: { status: { in: ['QUEUED', 'DELIVERED'] }, expiresAt: { gt: now } },
+      }),
+    ]);
+
+    const staleDevices = paired
+      .filter(
+        (bike) =>
+          bike.device &&
+          !bike.device.revokedAt &&
+          deviceOnlineState(bike.device.lastSeenAt, bike.ignition === 'ON', bike.device.config, now) !== 'ONLINE',
+      )
+      .map((bike) => bike.device!.code)
+      .sort();
+
+    return reply.send({
+      db,
+      workers: app.workers.snapshot(),
+      staleDevices,
+      pendingCommands,
+      version: API_VERSION,
+    });
+  });
 
   app.get('/admin/users', { preHandler: adminOnly }, async (request, reply) => {
     const query = ListAdminUsersQuerySchema.parse(request.query ?? {});

@@ -22,6 +22,10 @@ import { addDays, toIsoRequired, type Clock } from '../../lib/time.js';
 
 const BCRYPT_COST = 10;
 
+/** §5.4.10: "5 failed logins per account per 15 min -> 429". */
+const LOCKOUT_MAX_FAILURES = 5;
+const LOCKOUT_WINDOW_SEC = 15 * 60;
+
 export interface AuthServiceDeps {
   prisma: PrismaClient;
   app: FastifyInstance;
@@ -118,7 +122,40 @@ export class AuthService {
     }
     if (user.disabledAt) throw unauthorized('This account is disabled.');
 
+    /**
+     * §5.4.10: 5 failed logins per account per 15 minutes -> 429. Checked
+     * before the password, so a correct guess on the sixth try is still
+     * refused; the per-IP limit alone would not stop a distributed guesser.
+     * The window rolls - failures older than 15 minutes stop counting.
+     */
+    const now = this.deps.clock.now();
+    const recentFailures = await this.deps.prisma.auditEvent.count({
+      where: {
+        action: 'LOGIN_FAILED',
+        targetType: 'USER',
+        targetId: user.id,
+        createdAt: { gt: new Date(now.getTime() - LOCKOUT_WINDOW_SEC * 1000) },
+      },
+    });
+    if (recentFailures >= LOCKOUT_MAX_FAILURES) {
+      throw new AppError('RATE_LIMITED', 'Too many failed sign-in attempts. Try again in 15 minutes.');
+    }
+
     const ok = await bcrypt.compare(input.password, user.passwordHash);
+
+    // §5.7.3: logins are audit events. No password or identifier in `meta`.
+    await this.deps.prisma.auditEvent.create({
+      data: {
+        actorType: 'USER',
+        actorId: user.id,
+        action: ok ? 'LOGIN_SUCCEEDED' : 'LOGIN_FAILED',
+        targetType: 'USER',
+        targetId: user.id,
+        meta: {},
+        createdAt: now,
+      },
+    });
+
     if (!ok) throw unauthorized('Incorrect credentials.');
 
     return this.buildSession(user);

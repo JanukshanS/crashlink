@@ -13,4 +13,5 @@ export * from './api/drivers.js';
 export * from './api/bikes.js';
 export * from './api/rentals.js';
 export * from './api/incidents.js';
+export * from './api/images.js';
 export * from './api/admin.js';

@@ -45,7 +45,13 @@ export const AdminUserListResponseSchema = z.object({ items: z.array(UserDtoSche
 export const AdminHealthResponseSchema = z.object({
   db: z.string(),
   workers: z.record(
-    z.object({ lastRunAt: IsoDateTimeSchema.nullable(), lagMs: z.number().int().nullable() }),
+    z.object({
+      lastRunAt: IsoDateTimeSchema.nullable(),
+      lagMs: z.number().int().nullable(),
+      /** Added so a caller can judge staleness without hard-coding intervals. */
+      intervalMs: z.number().int(),
+      lastError: z.string().nullable(),
+    }),
   ),
   staleDevices: z.array(z.string()),
   pendingCommands: z.number().int(),
@@ -69,22 +75,43 @@ export const DashboardResponseSchema = z.object({
   recent: z.array(IncidentSummaryDtoSchema),
 });
 
+/**
+ * §5.4.7 `?from&to`. Both optional: the server defaults to the last 30 days
+ * ending now. Ranges longer than a year are refused rather than silently
+ * truncated, so a chart never shows less than the caller asked for.
+ */
+export const ANALYTICS_DEFAULT_RANGE_DAYS = 30;
+export const ANALYTICS_MAX_RANGE_DAYS = 366;
+
 export const AnalyticsRangeQuerySchema = z.object({
-  from: IsoDateTimeSchema.optional(),
-  to: IsoDateTimeSchema.optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+});
+export type AnalyticsRangeQuery = z.infer<typeof AnalyticsRangeQuerySchema>;
+
+/**
+ * §5.4.7 shows only `bucket=day`.
+ * TODO(spec): weekly buckets are not specified; anything but `day` is refused.
+ */
+export const IncidentsTimeseriesQuerySchema = AnalyticsRangeQuerySchema.extend({
+  bucket: z.literal('day').default('day'),
 });
 
 export const IncidentsByTypeResponseSchema = z.object({
   items: z.array(z.object({ type: IncidentTypeSchema, label: z.string(), count: z.number().int() })),
 });
 
+/** One day of §5.4.7 timeseries: the local date plus a count per category. */
+export const IncidentsTimeseriesItemSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  EMERGENCY: z.number().int(),
+  SECURITY: z.number().int(),
+  INFO: z.number().int(),
+});
+export type IncidentsTimeseriesItem = z.infer<typeof IncidentsTimeseriesItemSchema>;
+
 export const IncidentsTimeseriesResponseSchema = z.object({
-  items: z.array(
-    z
-      .object({ date: z.string() })
-      .catchall(z.number().int())
-      .describe('date plus one count per IncidentCategory'),
-  ),
+  items: z.array(IncidentsTimeseriesItemSchema),
 });
 
 export const DistanceByBikeResponseSchema = z.object({
@@ -98,6 +125,9 @@ export const ResponseOutcomesResponseSchema = z.object({
   OFFLINE_FALLBACK: z.number().int(),
   medianResponseSec: z.number().nullable(),
 });
+
+/** Map readability and payload size: at most this many pothole markers. */
+export const POTHOLE_MAP_LIMIT = 500;
 
 export const PotholesResponseSchema = z.object({
   items: z.array(
@@ -122,3 +152,10 @@ export const DemoScenarioRequestSchema = z.object({
 });
 
 export { IncidentCategorySchema };
+
+export type DashboardResponse = z.infer<typeof DashboardResponseSchema>;
+export type IncidentsByTypeResponse = z.infer<typeof IncidentsByTypeResponseSchema>;
+export type IncidentsTimeseriesResponse = z.infer<typeof IncidentsTimeseriesResponseSchema>;
+export type DistanceByBikeResponse = z.infer<typeof DistanceByBikeResponseSchema>;
+export type ResponseOutcomesResponse = z.infer<typeof ResponseOutcomesResponseSchema>;
+export type PotholesResponse = z.infer<typeof PotholesResponseSchema>;

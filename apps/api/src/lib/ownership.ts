@@ -37,6 +37,27 @@ export const resolveOwnerScopeId = async (
   throw forbidden('This action requires an owner account.');
 };
 
+/**
+ * §5.7.2 read scope. OWNER reads their own fleet, GUEST reads the demo
+ * owner's, ADMIN reads everything ("R all"). Writes never use this - they stay
+ * owner-only and check ownership directly.
+ */
+export type ReadScope = { kind: 'owner'; ownerId: string } | { kind: 'all' };
+
+export const resolveReadScope = async (prisma: PrismaClient, user: AuthUser): Promise<ReadScope> =>
+  user.role === 'ADMIN' ? { kind: 'all' } : { kind: 'owner', ownerId: await resolveOwnerScopeId(prisma, user) };
+
+/** The Prisma `where` fragment for a scope. */
+export const scopeWhere = (scope: ReadScope): { ownerId?: string } =>
+  scope.kind === 'all' ? {} : { ownerId: scope.ownerId };
+
+/**
+ * §5.7.3 / §2.1: full phone numbers only in the owner's own views. A driver,
+ * the read-only judge and even an admin see them masked - none of them needs
+ * to dial a rider's mother, and a demo screen must show no real numbers.
+ */
+export const canSeeFullPhones = (user: AuthUser): boolean => user.role === 'OWNER';
+
 /** A bike the caller owns, or 404. */
 export const assertOwnsBike = async (
   prisma: PrismaClient,
@@ -59,12 +80,12 @@ export const assertCanSeeRental = async (
   prisma: PrismaClient,
   user: AuthUser,
   rentalId: string,
-  ownerScopeId?: string,
+  scope?: ReadScope,
 ): Promise<{ id: string; ownerId: string; driverId: string }> => {
   const where =
     user.role === 'DRIVER'
       ? { id: rentalId, driverId: user.id }
-      : { id: rentalId, ownerId: ownerScopeId ?? user.id };
+      : { id: rentalId, ...scopeWhere(scope ?? { kind: 'owner', ownerId: user.id }) };
 
   const rental = await prisma.rental.findFirst({
     where,
@@ -79,12 +100,12 @@ export const assertCanSeeIncident = async (
   prisma: PrismaClient,
   user: AuthUser,
   incidentId: string,
-  ownerScopeId?: string,
+  scope?: ReadScope,
 ): Promise<{ id: string; ownerId: string; driverId: string | null }> => {
   const where =
     user.role === 'DRIVER'
       ? { id: incidentId, driverId: user.id }
-      : { id: incidentId, ownerId: ownerScopeId ?? user.id };
+      : { id: incidentId, ...scopeWhere(scope ?? { kind: 'owner', ownerId: user.id }) };
 
   const incident = await prisma.incident.findFirst({
     where,

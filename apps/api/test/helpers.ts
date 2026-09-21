@@ -10,6 +10,7 @@ import { DEFAULT_DEVICE_CONFIG } from '@crashlink/contracts';
 import { buildApp } from '../src/app.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { FakeClock } from '../src/lib/time.js';
+import { RecordingEmitter } from '../src/lib/realtime.js';
 import { encryptSecret, generatePairingCode } from '../src/lib/crypto.js';
 
 export interface TestContext {
@@ -17,14 +18,25 @@ export interface TestContext {
   prisma: PrismaClient;
   clock: FakeClock;
   config: Config;
+  /** §5.5 events the app would have pushed; asserted on directly. */
+  realtime: RecordingEmitter;
 }
 
-export const createTestContext = async (): Promise<TestContext> => {
+export const createTestContext = async (
+  overrides: { imageDir?: string } = {},
+): Promise<TestContext> => {
   const prisma = new PrismaClient();
   const clock = new FakeClock('2026-09-21T06:30:00.000Z');
-  const config = loadConfig();
-  const app = await buildApp({ config, clock, prisma });
-  return { app, prisma, clock, config };
+  const realtime = new RecordingEmitter();
+
+  const base = loadConfig();
+  const config: Config = overrides.imageDir ? { ...base, IMAGE_DIR: overrides.imageDir } : base;
+
+  // Sockets and worker intervals are off: tests step the clock and call
+  // `workers.runOnce()` so nothing depends on wall-clock timing.
+  const app = await buildApp({ config, clock, prisma, realtime });
+
+  return { app, prisma, clock, config, realtime };
 };
 
 export const destroyTestContext = async (ctx: TestContext): Promise<void> => {
@@ -179,6 +191,37 @@ export const createPairedBike = async (
   }
 
   return { bikeId, deviceId: device.id, deviceCode, pairingCode };
+};
+
+/**
+ * Pairs an already-provisioned device (from `createDevice`) to a new bike, so a
+ * test can hold the device secret and sign `/d/v1` requests for that bike.
+ */
+export const pairDeviceToBike = async (
+  ctx: TestContext,
+  owner: TestUser,
+  device: { code: string; pairingCode: string },
+  label = 'Scooter 1',
+): Promise<string> => {
+  const created = await ctx.app.inject({
+    method: 'POST',
+    url: '/api/v1/bikes',
+    headers: auth(owner.accessToken),
+    payload: { label },
+  });
+  const bikeId = created.json().id as string;
+
+  const paired = await ctx.app.inject({
+    method: 'POST',
+    url: `/api/v1/bikes/${bikeId}/pair`,
+    headers: auth(owner.accessToken),
+    payload: { deviceCode: device.code, pairingCode: device.pairingCode },
+  });
+  if (paired.statusCode !== 200) {
+    throw new Error(`pairDeviceToBike failed: ${paired.statusCode} ${paired.body}`);
+  }
+
+  return bikeId;
 };
 
 /** A driver who already has a current emergency contact, ready to be assigned. */

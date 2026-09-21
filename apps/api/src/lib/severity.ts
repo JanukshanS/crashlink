@@ -33,6 +33,28 @@ export const severityScore = (inputs: SeverityInputs): number => {
   );
 };
 
+/**
+ * The score for a newly created incident, or null when the index does not
+ * apply.
+ *
+ * §5.6.5 is a *crash* heuristic: peak g, rotation, speed and time fallen. It
+ * only means something for an EMERGENCY fall. Scoring a towing alert or a
+ * pothole with it would print a confident-looking number that measures
+ * nothing, so those get no score at all. MANUAL_SOS is EMERGENCY but has a
+ * null score by definition (§5.6.5).
+ *
+ * TODO(spec): §5.6.5 does not say which categories carry a severity index;
+ * restricting it to EMERGENCY is the reading that never overstates.
+ */
+export const scoreForIncident = (
+  type: IncidentType,
+  category: 'EMERGENCY' | 'SECURITY' | 'INFO',
+  inputs: SeverityInputs,
+): number | null => {
+  if (category !== 'EMERGENCY' || type === 'MANUAL_SOS') return null;
+  return severityScore(inputs);
+};
+
 export const severityLabel = (score: number | null, type: IncidentType): SeverityLabel => {
   if (type === 'MANUAL_SOS') return 'SOS';
   if (score === null) return 'LOW';

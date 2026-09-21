@@ -16,7 +16,12 @@ import {
   maskPhone,
 } from '@crashlink/contracts';
 import { requireUser } from '../../plugins/auth.js';
-import { assertCanSeeRental, resolveOwnerScopeId } from '../../lib/ownership.js';
+import {
+  assertCanSeeRental,
+  canSeeFullPhones,
+  resolveReadScope,
+  scopeWhere,
+} from '../../lib/ownership.js';
 import { notFound } from '../../lib/errors.js';
 import { toIso, toIsoRequired } from '../../lib/time.js';
 import { severityOf } from '../../lib/severity.js';
@@ -31,7 +36,9 @@ export const registerRentalRoutes = async (app: FastifyInstance, deps: AppDeps):
   });
 
   const ownerOnly = [app.authenticate, app.requireRole('OWNER')];
-  const ownerOrDriver = [app.authenticate, app.requireRole('OWNER', 'DRIVER')];
+  // §5.7.2 Rentals: OWNER RW own bikes, DRIVER R own, ADMIN R, GUEST R demo.
+  const readers = [app.authenticate, app.requireRole('OWNER', 'GUEST', 'ADMIN')];
+  const anyReader = [app.authenticate, app.requireRole('OWNER', 'DRIVER', 'GUEST', 'ADMIN')];
 
   app.post('/rentals', { preHandler: ownerOnly }, async (request, reply) => {
     const auth = requireUser(request);
@@ -68,14 +75,15 @@ export const registerRentalRoutes = async (app: FastifyInstance, deps: AppDeps):
     },
   );
 
-  app.get('/rentals', { preHandler: ownerOnly }, async (request, reply) => {
+  app.get('/rentals', { preHandler: readers }, async (request, reply) => {
     const auth = requireUser(request);
+    const scope = await resolveReadScope(app.prisma, auth);
     const filters = ListRentalsQuerySchema.parse(request.query ?? {});
     const page = PaginationQuerySchema.parse(request.query ?? {});
 
     const rentals = await app.prisma.rental.findMany({
       where: {
-        ownerId: auth.id,
+        ...scopeWhere(scope),
         ...(filters.state ? { state: filters.state } : {}),
         ...(filters.bikeId ? { bikeId: filters.bikeId } : {}),
       },
@@ -96,12 +104,12 @@ export const registerRentalRoutes = async (app: FastifyInstance, deps: AppDeps):
 
   app.get<{ Params: { id: string } }>(
     '/rentals/:id',
-    { preHandler: ownerOrDriver },
+    { preHandler: anyReader },
     async (request, reply) => {
       const auth = requireUser(request);
-      const ownerScopeId = auth.role === 'DRIVER' ? undefined : await resolveOwnerScopeId(app.prisma, auth);
+      const scope = auth.role === 'DRIVER' ? undefined : await resolveReadScope(app.prisma, auth);
 
-      await assertCanSeeRental(app.prisma, auth, request.params.id, ownerScopeId);
+      await assertCanSeeRental(app.prisma, auth, request.params.id, scope);
 
       const rental = await app.prisma.rental.findUnique({
         where: { id: request.params.id },
@@ -116,8 +124,22 @@ export const registerRentalRoutes = async (app: FastifyInstance, deps: AppDeps):
       // §5.7.3: a driver sees masked numbers even on their own rental; only the
       // owner sees the full recipients their bike will actually text.
       const isDriver = auth.role === 'DRIVER';
-      const show = (phone: string | null): string | null =>
-        isDriver ? maskPhone(phone) : phone;
+      const fullPhones = canSeeFullPhones(auth);
+      const show = (phone: string | null): string | null => (fullPhones ? phone : maskPhone(phone));
+
+      /**
+       * FR-RENT-04 "ENDED on ack (or after 10 min with warning)": the warning is
+       * this flag. false means the rental timed out and the bike never
+       * confirmed it cleared the rider's details; null while not yet ended.
+       */
+      const clearAck =
+        rental.state === 'ENDED'
+          ? await app.prisma.deviceCommand.findFirst({
+              where: { type: 'CLEAR_ASSIGNMENT', status: 'ACKED', payload: { path: ['rentalId'], equals: rental.id } },
+              select: { id: true },
+            })
+          : null;
+      const endConfirmedByDevice = rental.state === 'ENDED' ? Boolean(clearAck) : null;
 
       return reply.send({
         ...toRentalSummary(rental),
@@ -128,6 +150,7 @@ export const registerRentalRoutes = async (app: FastifyInstance, deps: AppDeps):
           contactName: rental.contactNameSnapshot,
           contactPhone: show(rental.contactPhoneSnapshot),
         },
+        endConfirmedByDevice,
         sync: {
           requestedAt: toIsoRequired(rental.requestedAt),
           deviceAckAt: toIso(rental.deviceAckAt),

@@ -26,6 +26,9 @@ export type CreateRentalResponse = z.infer<typeof CreateRentalResponseSchema>;
 
 export const EndRentalRequestSchema = z.object({ idempotencyKey: UuidSchema });
 
+/** FR-RENT-04: an ENDING_SYNC rental ends anyway after 10 minutes, with a warning. */
+export const RENTAL_END_TIMEOUT_SEC = 10 * 60;
+
 /** FR-RENT-03: only when DEMO_MODE=true; audit-logged and visibly flagged. */
 export const ForceActivateRequestSchema = z.object({ confirm: z.literal(true) });
 
@@ -67,6 +70,8 @@ export const RentalDetailDtoSchema = RentalSummaryDtoSchema.extend({
     contactName: z.string(),
     contactPhone: z.string(),
   }),
+  /** FR-RENT-04: false = ended by the 10-min timeout, bike never confirmed. */
+  endConfirmedByDevice: z.boolean().nullable(),
   sync: z.object({
     requestedAt: IsoDateTimeSchema,
     deviceAckAt: IsoDateTimeSchema.nullable(),

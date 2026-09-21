@@ -15,22 +15,23 @@ import {
   CreateBikeRequestSchema,
   DeviceConfigSchema,
   ListBikesQuerySchema,
+  OPEN_INCIDENT_STATES,
   OPEN_RENTAL_STATES,
   PairDeviceRequestSchema,
   UpdateBikeRequestSchema,
 } from '@crashlink/contracts';
 import { requireUser } from '../../plugins/auth.js';
-import { assertOwnsBike, resolveOwnerScopeId } from '../../lib/ownership.js';
+import { assertOwnsBike, resolveReadScope, scopeWhere } from '../../lib/ownership.js';
 import { conflict, notFound, validationFailed } from '../../lib/errors.js';
 import { routeRateLimit } from '../../lib/routeConfig.js';
+import { zonedDayStart } from '../../lib/time.js';
+import { ignitionSpans } from '../../lib/ignition.js';
 import { buildBikeSummary, buildHealthDto, bikeInclude, type BikeWithRelations } from './service.js';
 import type { AppDeps } from '../../app.js';
 
-/** Incidents an owner still has to deal with (§5.4.1 `openIncidentCount`). */
-const OPEN_INCIDENT_STATES = ['OPEN', 'AWAITING_RESPONSE', 'ESCALATED'] as const;
-
 export const registerBikeRoutes = async (app: FastifyInstance, deps: AppDeps): Promise<void> => {
-  const ownerOrGuest = [app.authenticate, app.requireRole('OWNER', 'GUEST')];
+  // §5.7.2 Bikes: OWNER RW own, GUEST R demo, ADMIN R all.
+  const readers = [app.authenticate, app.requireRole('OWNER', 'GUEST', 'ADMIN')];
   const ownerOnly = [app.authenticate, app.requireRole('OWNER')];
 
   const openIncidentCounts = async (bikeIds: string[]): Promise<Map<string, number>> => {
@@ -43,14 +44,14 @@ export const registerBikeRoutes = async (app: FastifyInstance, deps: AppDeps): P
     return new Map(rows.map((row) => [row.bikeId, row._count._all]));
   };
 
-  app.get('/bikes', { preHandler: ownerOrGuest }, async (request, reply) => {
+  app.get('/bikes', { preHandler: readers }, async (request, reply) => {
     const auth = requireUser(request);
-    const ownerId = await resolveOwnerScopeId(app.prisma, auth);
+    const scope = await resolveReadScope(app.prisma, auth);
     const query = ListBikesQuerySchema.parse(request.query ?? {});
     const now = deps.clock.now();
 
     const bikes = (await app.prisma.bike.findMany({
-      where: { ownerId, ...(query.status ? { status: query.status } : {}) },
+      where: { ...scopeWhere(scope), ...(query.status ? { status: query.status } : {}) },
       include: bikeInclude(OPEN_RENTAL_STATES),
       orderBy: { createdAt: 'asc' },
     })) as unknown as BikeWithRelations[];
@@ -80,13 +81,13 @@ export const registerBikeRoutes = async (app: FastifyInstance, deps: AppDeps): P
     return reply.status(201).send(buildBikeSummary(bike, 0, now));
   });
 
-  app.get<{ Params: { id: string } }>('/bikes/:id', { preHandler: ownerOrGuest }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/bikes/:id', { preHandler: readers }, async (request, reply) => {
     const auth = requireUser(request);
-    const ownerId = await resolveOwnerScopeId(app.prisma, auth);
+    const scope = await resolveReadScope(app.prisma, auth);
     const now = deps.clock.now();
 
     const bike = (await app.prisma.bike.findFirst({
-      where: { id: request.params.id, ownerId },
+      where: { id: request.params.id, ...scopeWhere(scope) },
       include: bikeInclude(OPEN_RENTAL_STATES),
     })) as unknown as BikeWithRelations | null;
     if (!bike) throw notFound('Bike');
@@ -94,9 +95,32 @@ export const registerBikeRoutes = async (app: FastifyInstance, deps: AppDeps): P
     const counts = await openIncidentCounts([bike.id]);
     const parsedConfig = bike.device ? DeviceConfigSchema.safeParse(bike.device.config) : null;
 
-    // §5.6.5 riding/parked time. Full ignition-event walking arrives with the
-    // device gateway; until a device reports, the honest answer is 0 / null.
-    // TODO(spec): fold in ignition_events once heartbeat ingest lands (§5.6.5).
+    // §5.6.5 / FR-RENT-06: riding and parked time today, walked from
+    // ignition_events. "Today" is the owner's local day (TZ_DISPLAY), since
+    // that is the day they mean when they read the number.
+    const dayStart = zonedDayStart(now, deps.config.TZ_DISPLAY);
+
+    const [before, today] = await Promise.all([
+      app.prisma.ignitionEvent.findFirst({
+        where: { bikeId: bike.id, changedAt: { lte: dayStart } },
+        orderBy: { changedAt: 'desc' },
+        select: { state: true },
+      }),
+      app.prisma.ignitionEvent.findMany({
+        where: { bikeId: bike.id, changedAt: { gt: dayStart, lte: now } },
+        orderBy: { changedAt: 'asc' },
+        select: { state: true, changedAt: true },
+      }),
+    ]);
+
+    const spans = ignitionSpans(
+      before?.state ?? 'UNKNOWN',
+      today.map((event) => ({ state: event.state, at: event.changedAt })),
+      dayStart,
+      now,
+    );
+
+    // "Parked for X min" (FR-RENT-06) only makes sense while it is parked.
     const parkedSinceSec =
       bike.ignition === 'OFF' && bike.ignitionChangedAt
         ? Math.max(0, Math.round((now.getTime() - bike.ignitionChangedAt.getTime()) / 1000))
@@ -106,7 +130,11 @@ export const registerBikeRoutes = async (app: FastifyInstance, deps: AppDeps): P
       ...buildBikeSummary(bike, counts.get(bike.id) ?? 0, now),
       health: buildHealthDto(bike.device),
       config: parsedConfig?.success ? parsedConfig.data : null,
-      ridingSecToday: 0,
+      ridingSecToday: spans.ridingSec,
+      parkedSecToday: spans.parkedSec,
+      // Time today before the bike first reported a state. Shown as such rather
+      // than silently counted as parked.
+      unknownSecToday: spans.unknownSec,
       parkedSinceSec,
     });
   });

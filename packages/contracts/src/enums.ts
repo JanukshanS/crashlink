@@ -75,6 +75,13 @@ export const INCIDENT_STATES = [
 export const IncidentStateSchema = z.enum(INCIDENT_STATES);
 export type IncidentState = z.infer<typeof IncidentStateSchema>;
 
+/**
+ * Incident states an owner still has to deal with: KPI "open incidents", the
+ * emergency banner and each bike's `openIncidentCount` all use this one list.
+ */
+export const OPEN_INCIDENT_STATES = ['OPEN', 'AWAITING_RESPONSE', 'ESCALATED'] as const;
+export type OpenIncidentState = (typeof OPEN_INCIDENT_STATES)[number];
+
 export const DECISIONS = ['NOT_APPLICABLE', 'PENDING', 'SAFE', 'HELP', 'TIMEOUT', 'OFFLINE_FALLBACK'] as const;
 export const DecisionSchema = z.enum(DECISIONS);
 export type Decision = z.infer<typeof DecisionSchema>;

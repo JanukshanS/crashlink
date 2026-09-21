@@ -52,6 +52,12 @@ export type DeviceAuthQuery = z.infer<typeof DeviceAuthQuerySchema>;
 export const DEVICE_TIMESTAMP_WINDOW_SEC = 300;
 export const DEVICE_NONCE_TTL_SEC = 600;
 
+/** §5.4.10: "60/min per device (burst 20)" - the burst is Nginx's job. */
+export const DEVICE_RATE_LIMIT_PER_MIN = 60;
+
+/** §5.7.4: Nginx caps `/d/` at 32 KB; the API enforces the same, in depth. */
+export const DEVICE_BODY_LIMIT_BYTES = 32 * 1024;
+
 // ---------------------------------------------------------------------------
 // §5.3.9 Device configuration object
 // ---------------------------------------------------------------------------

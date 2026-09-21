@@ -16,7 +16,9 @@
     "db:generate": "prisma generate --schema prisma/schema.prisma",
     "db:seed": "node scripts/run.mjs tsx prisma/seed.ts",
     "device:provision": "node scripts/run.mjs tsx src/cli/provision.ts",
-    "pretest": "cd ../../packages/contracts && npm run build"
+    "pretest": "cd ../../packages/contracts && npm run build",
+    "demo:reset": "node scripts/run.mjs tsx src/cli/demoReset.ts",
+    "demo:check": "node scripts/run.mjs tsx src/cli/demoCheck.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -34,11 +36,13 @@
     "fastify-type-provider-zod": "^4.0.2",
     "pino": "^9.5.0",
     "prisma": "^6.19.0",
+    "socket.io": "^4.8.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.9.0",
+    "socket.io-client": "^4.8.3",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"

@@ -91,11 +91,16 @@ export const IncidentDetailDtoSchema = z.object({
   responses: z.array(IncidentResponseDtoSchema),
   notifications: z.array(IncidentNotificationDtoSchema),
   timeline: z.array(IncidentTimelineEntrySchema),
+  /** FR-IMG-03. Null only for a DRIVER, who gets no photo fields (§5.7.2). */
   photo: z
     .object({
       status: PhotoStatusSchema,
       bytes: z.number().int().nullable(),
       sha256: z.string().nullable(),
+      /** 0-1 while uploading, for "UPLOADING (%)"; null otherwise. */
+      progress: z.number().min(0).max(1).nullable(),
+      /** A verified photo existed but retention has since deleted it. */
+      expired: z.boolean(),
       integrity: z.enum(['VERIFIED', 'UNVERIFIED', 'MISMATCH']),
     })
     .nullable(),
