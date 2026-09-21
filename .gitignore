@@ -17,6 +17,7 @@ apps/mobile/ios/
 
 # Firmware secrets (§5.6.7, §5.7.3) — provisioned per device, never committed
 firmware/**/include/secrets.h
+firmware/**/include/network.h
 .pio/
 .pioenvs/
 

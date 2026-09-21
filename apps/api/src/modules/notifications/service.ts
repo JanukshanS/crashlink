@@ -110,16 +110,48 @@ export const recordAttempt = async (
     where: { id: input.notificationId },
     select: { state: true },
   });
+  const attempts = await tx.notificationAttempt.findMany({
+    where: { notificationId: input.notificationId },
+    select: { attemptNo: true, state: true },
+  });
 
-  if (isStrongerState(input.state, notification.state)) {
+  const derived = deriveAttemptState(attempts);
+  // A state set outside the attempt history (e.g. RESPONDED) is never walked back.
+  const next =
+    !RETRYABLE_STATES.has(notification.state) && !isStrongerState(derived, notification.state) ? notification.state : derived;
+
+  if (next !== notification.state) {
     await tx.notification.update({
       where: { id: input.notificationId },
-      data: { state: input.state },
+      data: { state: next },
     });
-    return { recorded: !existing, state: input.state };
   }
 
-  return { recorded: !existing, state: notification.state };
+  return { recorded: !existing, state: next };
+};
+
+/** An attempt that failed or ended unknown is superseded by a later attempt (§5.3.7 retries). */
+const RETRYABLE_STATES = new Set<NotificationState>(['FAILED', 'OUTCOME_UNKNOWN']);
+
+/**
+ * The logical state from the attempt history. Within an attempt, states only
+ * move forward. Across attempts, a retry replaces an earlier FAILED /
+ * OUTCOME_UNKNOWN - "failed, then submitted on retry" is submitted - but never
+ * an earlier success.
+ */
+export const deriveAttemptState = (attempts: { attemptNo: number; state: NotificationState }[]): NotificationState => {
+  const best = new Map<number, NotificationState>();
+  for (const attempt of attempts) {
+    const current = best.get(attempt.attemptNo);
+    if (!current || isStrongerState(attempt.state, current)) best.set(attempt.attemptNo, attempt.state);
+  }
+
+  let state: NotificationState = 'REQUESTED';
+  for (const attemptNo of [...best.keys()].sort((a, b) => a - b)) {
+    const candidate = best.get(attemptNo)!;
+    if (RETRYABLE_STATES.has(state) || isStrongerState(candidate, state)) state = candidate;
+  }
+  return state;
 };
 
 /** Moves a logical notification forward, never backward. */

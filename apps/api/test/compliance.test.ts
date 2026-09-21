@@ -25,6 +25,7 @@ import {
   type TestContext,
 } from './helpers.js';
 import { createDevice, heartbeatBody, incidentBody, signedRequest } from './deviceHelpers.js';
+import { deriveAttemptState } from '../src/modules/notifications/service.js';
 
 let ctx: TestContext;
 let imageDir: string;
@@ -497,5 +498,42 @@ describe('NFR-04 honest labels', () => {
       if (type === 'MANUAL_SOS' || type === 'DEVICE_OFFLINE_DURING_RENTAL') continue;
       expect(label, type).toMatch(/^Possible /);
     }
+  });
+});
+
+describe('§5.3.7 SMS retries (found on the real bike)', () => {
+  it('reports a message that failed once and was submitted on retry as submitted', () => {
+    expect(
+      deriveAttemptState([
+        { attemptNo: 1, state: 'QUEUED' },
+        { attemptNo: 1, state: 'FAILED' },
+        { attemptNo: 2, state: 'AT_SUBMITTED' },
+      ]),
+    ).toBe('AT_SUBMITTED');
+  });
+
+  it('never lets a later attempt walk back an earlier success', () => {
+    expect(
+      deriveAttemptState([
+        { attemptNo: 1, state: 'AT_SUBMITTED' },
+        { attemptNo: 2, state: 'QUEUED' },
+      ]),
+    ).toBe('AT_SUBMITTED');
+    expect(
+      deriveAttemptState([
+        { attemptNo: 1, state: 'NETWORK_CONFIRMED' },
+        { attemptNo: 1, state: 'QUEUED' },
+      ]),
+    ).toBe('NETWORK_CONFIRMED');
+  });
+
+  it('stays FAILED when every attempt failed', () => {
+    expect(
+      deriveAttemptState([
+        { attemptNo: 1, state: 'FAILED' },
+        { attemptNo: 2, state: 'FAILED' },
+        { attemptNo: 3, state: 'OUTCOME_UNKNOWN' },
+      ]),
+    ).toBe('OUTCOME_UNKNOWN');
   });
 });
