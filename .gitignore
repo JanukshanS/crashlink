@@ -24,3 +24,6 @@ firmware/**/include/network.h
 # Local data
 backups/
 data/
+
+# Local AI assistant instructions - keep out of the remote
+CLAUDE.md
