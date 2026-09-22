@@ -598,7 +598,20 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
   if (!ensureLink()) return r;
   const bool post = strcmp(method, "GET") != 0;
   at("AT+HTTPTERM", 1000);
-  if (at("AT+HTTPINIT").indexOf("OK") < 0) return r;
+  if (at("AT+HTTPINIT").indexOf("OK") < 0) {
+    // Seen on the real bike: after a brown-out mid-request the HTTP stack stays
+    // "busy" (604) until the modem is reset. Terminate, retry, then full reset.
+    at("AT+HTTPTERM", 1000);
+    if (at("AT+HTTPINIT").indexOf("OK") < 0) {
+      logf("HTTP stack stuck - resetting modem (AT+CFUN=1,1)");
+      at("AT+CFUN=1,1", 3000);
+      delay(8000);
+      for (int i = 0; i < 20 && at("AT+CREG?").indexOf(",1") < 0; i++) delay(1500);
+      at("ATE0");
+      at("AT+CMGF=1");
+      return r;  // the caller retries on its next cycle, with a fresh bearer
+    }
+  }
   at("AT+HTTPPARA=\"CID\",1");
   at("AT+HTTPSSL=0");
   at("AT+HTTPPARA=\"URL\",\"" + url + "\"");
@@ -618,8 +631,16 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
   String act = simRead(60000, "+HTTPACTION:", nullptr);
   int idx = act.indexOf("+HTTPACTION:");
   if (idx < 0) {
-    logf("HTTP: no +HTTPACTION (%s)", oneLine(act).substring(0, 80).c_str());
-    at("AT+HTTPTERM");
+    // "Call Ready"/"SMS Ready" here is the modem's boot banner: it browned out
+    // mid-transfer. Put a 470-1000 uF capacitor across SIM800L VCC/GND.
+    const bool rebooted = act.indexOf("Call Ready") >= 0 || act.indexOf("SMS Ready") >= 0 || act.indexOf("RDY") >= 0;
+    logf("HTTP: no +HTTPACTION%s (%s)", rebooted ? " - MODEM REBOOTED (power dip)" : "", oneLine(act).substring(0, 80).c_str());
+    if (rebooted) {
+      at("ATE0");
+      at("AT+CMGF=1");
+    } else {
+      at("AT+HTTPTERM");
+    }
     return r;
   }
   // +HTTPACTION: <method>,<status>,<length>

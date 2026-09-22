@@ -190,6 +190,71 @@ void checkGprs() {
   result("GPRS bearer", state.indexOf("+SAPBR: 1,1") >= 0, state);
 }
 
+/** GET the VPS clock over GPRS, printing the modem's reply to every step. */
+void resetModem() {
+  Serial.println("\nModem full reset (AT+CFUN=1,1) - clears a stuck HTTP stack:");
+  Serial.printf("  cfun     %s\n", at("AT+CFUN=1,1", 3000).c_str());
+  delay(8000);
+  String creg;
+  uint32_t start = millis();
+  for (;;) {
+    at("AT", 500);
+    creg = at("AT+CREG?");
+    if (creg.indexOf(",1") >= 0 || creg.indexOf(",5") >= 0 || millis() - start > 45000) break;
+    delay(2000);
+  }
+  at("ATE0");
+  Serial.printf("  creg     %s (%lu s)\n", creg.c_str(), (millis() - start) / 1000);
+}
+
+void httpGet(const char* url) {
+  Serial.printf("\nHTTP GET %s\n", url);
+  Serial.printf("  term     %s\n", at("AT+HTTPTERM", 1000).c_str());
+  Serial.printf("  init     %s\n", at("AT+HTTPINIT").c_str());
+  Serial.printf("  cid      %s\n", at("AT+HTTPPARA=\"CID\",1").c_str());
+  Serial.printf("  url      %s\n", at(String("AT+HTTPPARA=\"URL\",\"") + url + "\"").c_str());
+  Serial.printf("  action   %s\n", at("AT+HTTPACTION=0", 3000).c_str());
+  String urc;
+  uint32_t start = millis();
+  while (millis() - start < 60000 && urc.indexOf("+HTTPACTION:") < 0) {
+    while (sim.available()) urc += char(sim.read());
+    delay(10);
+  }
+  urc.trim();
+  urc.replace("\r\n", " | ");
+  Serial.printf("  result   %s (%lu ms)\n", urc.length() ? urc.c_str() : "(nothing in 60 s)", millis() - start);
+  Serial.printf("  read     %s\n", at("AT+HTTPREAD", 5000).c_str());
+  Serial.printf("  term     %s\n", at("AT+HTTPTERM").c_str());
+}
+
+void checkHttp() {
+  resetModem();
+  checkGprs();
+  httpGet("http://169.58.147.190/");  // raw IP: Traefik answers 404, which still proves connectivity
+  const char* url = "http://169-58-147-190.sslip.io/d/v1/time";
+  Serial.printf("\nHTTP GET %s\n", url);
+  Serial.printf("  term     %s\n", at("AT+HTTPTERM", 1000).c_str());
+  Serial.printf("  init     %s\n", at("AT+HTTPINIT").c_str());
+  Serial.printf("  cid      %s\n", at("AT+HTTPPARA=\"CID\",1").c_str());
+  Serial.printf("  url      %s\n", at(String("AT+HTTPPARA=\"URL\",\"") + url + "\"").c_str());
+  Serial.printf("  action   %s\n", at("AT+HTTPACTION=0", 3000).c_str());
+  // The result arrives later as an unsolicited +HTTPACTION: 0,<status>,<len>.
+  String urc;
+  uint32_t start = millis();
+  while (millis() - start < 60000 && urc.indexOf("+HTTPACTION:") < 0) {
+    while (sim.available()) urc += char(sim.read());
+    delay(10);
+  }
+  urc.trim();
+  urc.replace("\r\n", " | ");
+  Serial.printf("  result   %s (%lu ms)\n", urc.length() ? urc.c_str() : "(nothing in 60 s)", millis() - start);
+  Serial.printf("  read     %s\n", at("AT+HTTPREAD", 5000).c_str());
+  Serial.printf("  term     %s\n", at("AT+HTTPTERM").c_str());
+  String alive = at("AT", 1000);
+  Serial.printf("  modem    %s\n", alive.length() ? alive.c_str() : "(no reply - it reset)");
+  result("HTTP over GPRS", urc.indexOf(",200,") >= 0, urc);
+}
+
 void sendTestSms() {
   Serial.printf("\nSending test SMS to %s ...\n", TEST_SMS_NUMBER);
   at("AT+CMGF=1");
@@ -408,6 +473,7 @@ void loop() {
       case 's': sendTestSms(); break;
       case 'p': checkGps(); break;
       case 'c': checkCamera(); break;
+      case 'w': checkHttp(); break;
       case 'h': help(); break;
       default: break;
     }
