@@ -20,7 +20,8 @@ import {
 import { addSeconds, toIso, toIsoRequired, type Clock } from '../../lib/time.js';
 import { scoreForIncident, severityOf } from '../../lib/severity.js';
 import { computeIntegrityHash } from '../../lib/integrity.js';
-import { ensureNotification } from '../notifications/service.js';
+import { ensureNotification, recordAttempt } from '../notifications/service.js';
+import type { PushSender } from '../../lib/push.js';
 import type { RealtimeEmitter } from '../../lib/realtime.js';
 
 /** §5.3.8 - the category each incident type belongs to. */
@@ -53,6 +54,8 @@ export interface IncidentServiceDeps {
   clock: Clock;
   realtime: RealtimeEmitter;
   responseWindowSec: number;
+  /** FCM (team decision 22 Sep 2026): reaches a phone whose app is closed. */
+  push?: PushSender;
 }
 
 export const toIncidentSummary = (incident: {
@@ -380,6 +383,19 @@ export class IncidentService {
       });
     }
 
+    // Push is an attention aid on top of the socket and the bike's SMS, and it
+    // must never delay or fail the incident - hence after the transaction, and
+    // never awaited into the caller's path.
+    void this.pushForIncident({
+      incidentId: created.id,
+      label: incidentTypeLabel(created.type),
+      bikeLabel: created.bike?.label ?? '',
+      ownerId: input.ownerId,
+      driverId: serverQuestion && matchedRental ? matchedRental.driverId : null,
+      isEmergency,
+      at: now,
+    });
+
     return {
       incidentId: created.id,
       state: created.state,
@@ -390,6 +406,53 @@ export class IncidentService {
       created: true,
       quarantined: mismatch,
     };
+  }
+
+  /** FR-NOT-04: the rider's question and the owner's alert, as push messages. */
+  private async pushForIncident(input: {
+    incidentId: string;
+    label: string;
+    bikeLabel: string;
+    ownerId: string;
+    driverId: string | null;
+    isEmergency: boolean;
+    at: Date;
+  }): Promise<void> {
+    const push = this.deps.push;
+    if (!push) return;
+
+    try {
+      if (input.driverId) {
+        const accepted = await push.sendToUser(input.driverId, {
+          title: 'Are you safe?',
+          body: `${input.label} on ${input.bikeLabel} - tap to answer`,
+          data: { type: 'INCIDENT_QUESTION', incidentId: input.incidentId },
+          channelId: 'emergency',
+        });
+        if (accepted > 0) {
+          await this.deps.prisma.$transaction(async (tx) => {
+            const { id } = await ensureNotification(tx, { incidentId: input.incidentId, kind: 'DRIVER_PROMPT', at: input.at });
+            // Firebase took it; that is not proof the phone showed it (NFR-04).
+            await recordAttempt(tx, { notificationId: id, attemptNo: 1, state: 'PROVIDER_ACCEPTED' });
+          });
+        }
+      }
+
+      const ownerAccepted = await push.sendToUser(input.ownerId, {
+        title: input.label,
+        body: `${input.bikeLabel} - tap to open`,
+        data: { type: 'INCIDENT_CREATED', incidentId: input.incidentId },
+        channelId: input.isEmergency ? 'emergency' : 'security',
+      });
+      if (ownerAccepted > 0) {
+        await this.deps.prisma.$transaction(async (tx) => {
+          const { id } = await ensureNotification(tx, { incidentId: input.incidentId, kind: 'OWNER_PUSH', at: input.at });
+          await recordAttempt(tx, { notificationId: id, attemptNo: 1, state: 'PROVIDER_ACCEPTED' });
+        });
+      }
+    } catch {
+      // A push that cannot be sent is never allowed to affect the incident.
+    }
   }
 
   /**

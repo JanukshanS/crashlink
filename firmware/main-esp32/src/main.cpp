@@ -238,6 +238,7 @@ void loadAssignment() {
 
 uint8_t mpuAddr = 0x68;
 bool mpuOk = false;
+volatile bool levelDirty = false;  // the auto-levelled "upright" needs saving
 float g0x = 0, g0y = 0, g0z = 1;  // calibrated upright gravity direction
 
 bool mpuWrite(uint8_t reg, uint8_t val) {
@@ -262,14 +263,30 @@ bool mpuRead(float& ax, float& ay, float& az, float& gyro) {
   return true;
 }
 
+void saveUpright() {
+  nvs.putFloat("g0x", g0x);
+  nvs.putFloat("g0y", g0y);
+  nvs.putFloat("g0z", g0z);
+}
+
 bool initMpu() {
   if (!mpuWrite(0x6B, 0x00)) return false;  // wake
   mpuWrite(0x1C, 0x10);                     // accel +-8 g (impacts)
   mpuWrite(0x1B, 0x08);                     // gyro +-500 dps
   mpuWrite(0x1A, 0x03);                     // DLPF ~44 Hz
   delay(100);
-  // Calibrate "upright" from the resting orientation at boot (spec 5.3.8:
-  // "tilt from calibrated upright") - power the bike on standing up.
+
+  // "Upright" is remembered in NVS. Re-learning it at every boot made the tilt
+  // asymmetric when the bike was not perfectly level at power-on (a 20 deg lean
+  // meant one side tripped at 40 deg and the other needed 80), and calibrating
+  // while the bike lay on its side disabled detection entirely.
+  if (nvs.isKey("g0z")) {
+    g0x = nvs.getFloat("g0x", 0);
+    g0y = nvs.getFloat("g0y", 0);
+    g0z = nvs.getFloat("g0z", 1);
+    return true;
+  }
+
   float sx = 0, sy = 0, sz = 0;
   int n = 0;
   for (int i = 0; i < 50; i++) {
@@ -288,6 +305,7 @@ bool initMpu() {
   g0x = sx / m;
   g0y = sy / m;
   g0z = sz / m;
+  saveUpright();
   return true;
 }
 
@@ -297,6 +315,7 @@ void sensorTask(void*) {
   const TickType_t period = pdMS_TO_TICKS(20);
   TickType_t wake = xTaskGetTickCount();
   float tiltFiltered = 0;
+  int levelTicks = 0;
   Bucket cur = {0, 0, 0, 0, 0};
   int ticksInBucket = 0;
   bool btnLast[3] = {true, true, true};
@@ -321,6 +340,28 @@ void sensorTask(void*) {
       }
       tiltFiltered = tiltFiltered * 0.8f + tilt * 0.2f;
       tiltNow = tiltFiltered;
+
+      // Auto-level: while the bike rests within 20 deg of upright, still, and at
+      // 1 g, nudge the stored "upright" towards gravity. Both sides then need the
+      // same 60 deg, whatever angle the board is mounted at.
+      if (mode == MONITORING && tiltFiltered < 20 && gyro < 8 && fabsf(mag - 1.0f) < 0.08f) {
+        if (++levelTicks > 500) {  // 10 s of calm
+          const float a = 0.02f;
+          float nx = g0x * (1 - a) + (ax / mag) * a;
+          float ny = g0y * (1 - a) + (ay / mag) * a;
+          float nz = g0z * (1 - a) + (az / mag) * a;
+          const float nm = sqrtf(nx * nx + ny * ny + nz * nz);
+          if (nm > 0.1f) {
+            g0x = nx / nm;
+            g0y = ny / nm;
+            g0z = nz / nm;
+            levelDirty = true;
+          }
+          levelTicks = 400;  // keep levelling, but do not re-arm the 10 s wait
+        }
+      } else {
+        levelTicks = 0;
+      }
       cur.maxAccelG = max(cur.maxAccelG, mag);
       cur.maxGyroDps = max(cur.maxGyroDps, gyro);
       cur.rotDeg += gyro * 0.02f;
@@ -1598,6 +1639,13 @@ void loop() {
     heartbeat();
   }
   if (mode == MONITORING) rememberFix();
+  // Persist the auto-levelled upright at most every 5 minutes (flash wear).
+  static uint32_t lastLevelSave = 0;
+  if (levelDirty && mode == MONITORING && now - lastLevelSave > 300000) {
+    lastLevelSave = now;
+    levelDirty = false;
+    saveUpright();
+  }
   if (mode == MONITORING && pendingPhotoEvent.length() && now - lastPhotoTry > 20000) {
     lastPhotoTry = now;
     logf("retrying photo upload for %s", pendingPhotoEvent.substring(0, 8).c_str());

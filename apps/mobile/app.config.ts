@@ -22,6 +22,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
 
   android: {
     package: 'lk.iotrix.crashlink',
+    // FCM (team decision 22 Sep 2026) - the question must reach a closed app.
+    googleServicesFile: './google-services.json',
     versionCode: 2,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',

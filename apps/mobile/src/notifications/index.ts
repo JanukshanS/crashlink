@@ -18,6 +18,7 @@ import * as Device from 'expo-device';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 import type { IncidentCategory } from '@crashlink/contracts';
+import { api } from '../api/client';
 
 type NotificationsModule = typeof import('expo-notifications');
 
@@ -75,6 +76,25 @@ export const registerNotificationChannels = async (): Promise<void> => {
     importance: Notifications.AndroidImportance.DEFAULT,
     enableVibrate: false,
   });
+};
+
+/**
+ * FR-NOT-04: hand the device's FCM token to the API, so the server can push the
+ * rider's question and the owner's alert while the app is closed. Safe to call
+ * repeatedly - the server re-points an existing token at the current user.
+ */
+export const registerPushToken = async (): Promise<string | null> => {
+  if (!Notifications) return null;
+  try {
+    const { data } = await Notifications.getDevicePushTokenAsync();
+    if (typeof data !== 'string' || data.length < 8) return null;
+    await api.post('/me/push-tokens', { token: data, platform: 'android' });
+    return data;
+  } catch {
+    // No Firebase config, no permission, or offline: the socket, the 5 s poll
+    // and the bike's SMS still cover the rider.
+    return null;
+  }
 };
 
 export type PermissionState = 'granted' | 'denied' | 'undetermined';

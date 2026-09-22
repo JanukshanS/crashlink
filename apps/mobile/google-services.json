@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "710245905619",
+    "project_id": "crashlink-b03db",
+    "storage_bucket": "crashlink-b03db.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710245905619:android:6e1b364fd8a96b14f55026",
+        "android_client_info": {
+          "package_name": "lk.iotrix.crashlink"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPeGVrGWPBa_AW_EIb872VZGzB99c2sjY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

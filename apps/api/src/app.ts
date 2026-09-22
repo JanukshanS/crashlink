@@ -19,6 +19,7 @@ import type { Config } from './config.js';
 import { systemClock, toIsoRequired, type Clock } from './lib/time.js';
 import { maskObject } from './lib/mask.js';
 import { noopEmitter, type RealtimeEmitter } from './lib/realtime.js';
+import { createPushSender } from './lib/push.js';
 import prismaPlugin from './plugins/prisma.js';
 import errorsPlugin from './plugins/errors.js';
 import authPlugin from './plugins/auth.js';
@@ -139,11 +140,14 @@ export const buildApp = async (options: BuildAppOptions): Promise<FastifyInstanc
   const realtime: RealtimeEmitter =
     options.realtime ?? (enableSockets ? app.realtime : noopEmitter);
 
+  const push = createPushSender(app.prisma, config.FCM_SERVICE_ACCOUNT_JSON, app.log);
+
   const incidents = new IncidentService({
     prisma: app.prisma,
     clock,
     realtime,
     responseWindowSec: config.RESPONSE_WINDOW_SEC,
+    push,
   });
 
   const decisions = new DecisionService({ prisma: app.prisma, clock, realtime });

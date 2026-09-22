@@ -27,3 +27,7 @@ data/
 
 # Local AI assistant instructions - keep out of the remote
 CLAUDE.md
+
+# Firebase admin service-account key (server-side secret) - never commit
+**/firebase-adminsdk*.json
+*-firebase-adminsdk-*.json

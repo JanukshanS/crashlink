@@ -11,7 +11,7 @@
  */
 import React, { useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { Notifications, parseNotificationData, requestNotificationPermission } from '../notifications';
+import { Notifications, parseNotificationData, registerPushToken, requestNotificationPermission } from '../notifications';
 import { useAuthStore } from '../stores/auth';
 
 export const NotificationBridge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
@@ -20,7 +20,9 @@ export const NotificationBridge: React.FC<{ enabled: boolean }> = ({ enabled }) 
 
   useEffect(() => {
     if (!enabled || !role) return;
-    void requestNotificationPermission();
+    void requestNotificationPermission().then((state) => {
+      if (state === 'granted') void registerPushToken();
+    });
   }, [enabled, role]);
 
   useEffect(() => {

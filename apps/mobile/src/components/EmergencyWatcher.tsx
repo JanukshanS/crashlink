@@ -15,6 +15,8 @@ import { useAuthStore } from '../stores/auth';
 import { useEmergencyStore } from '../stores/emergency';
 import { useRealtimeStore } from '../stores/realtime';
 import { useActiveRental, usePendingQuestion } from '../api/hooks/useIncidents';
+import { api } from '../api/client';
+import type { IncidentDetailDto } from '@crashlink/contracts';
 
 export const EmergencyWatcher: React.FC = () => {
   const router = useRouter();
@@ -51,6 +53,37 @@ export const EmergencyWatcher: React.FC = () => {
   }, [isDriver, pending.data]);
 
   const question = useEmergencyStore((state) => state.question);
+  const status = useEmergencyStore((state) => state.status);
+
+  /**
+   * The server has stopped asking about the open question - the bike's SAFE
+   * button, an SOS, or a TIMEOUT decided it. Find out which, so the emergency
+   * screen stops asking too. This lives here rather than on the screen so it
+   * still runs while the screen is being opened or the app has just resumed.
+   */
+  useEffect(() => {
+    if (!isDriver || !question) return;
+    if (status !== 'idle' && status !== 'offline') return;
+    const payload = pending.data;
+    if (!payload) return;
+    if (payload.question && payload.question.incidentId === question.incidentId && !payload.question.myResponse) return;
+
+    let cancelled = false;
+    void api
+      .get<IncidentDetailDto>(`/incidents/${question.incidentId}`)
+      .then((incident) => {
+        if (cancelled) return;
+        if (incident.decision && incident.decision !== 'PENDING' && incident.decision !== 'NOT_APPLICABLE') {
+          useEmergencyStore.getState().setLosingDecision(incident.decision, incident.decidedAt ?? null);
+        }
+      })
+      .catch(() => {
+        // Offline: the screen's own poll and the socket remain as backstops.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDriver, question, status, pending.data]);
 
   useEffect(() => {
     if (!isDriver || !question) return;
