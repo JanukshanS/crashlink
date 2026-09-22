@@ -171,6 +171,24 @@ export default function EmergencyScreen() {
     }
   }, [status, t, losingDecision, incident.data?.decidedAt]);
 
+  // "Syncing to bike" -> "Synced with bike ✓" once the bike has acknowledged the
+  // decision. The answer's own reply is too early to know; the 5 s incident
+  // poll carries syncedToDeviceAt, so the line can move on by itself.
+  const syncedAt = incident.data?.responses.find((response) => response.accepted && response.syncedToDeviceAt)
+    ?.syncedToDeviceAt;
+  useEffect(() => {
+    if (status === 'accepted' && syncedAt) useEmergencyStore.getState().setStatus('synced');
+  }, [status, syncedAt]);
+
+  // A SAFE outcome needs nothing more from the rider: go home after 5 s so the
+  // screen does not sit on "syncing". HELP / too late keep the call buttons up.
+  const safeOutcome = (answered && choice === 'SAFE') || status === 'resolvedElsewhere';
+  useEffect(() => {
+    if (!safeOutcome) return;
+    const timer = setTimeout(() => close(), 5000);
+    return () => clearTimeout(timer);
+  }, [safeOutcome, close]);
+
   // Decided somewhere else (the bike's SAFE/SOS button, or the server's TIMEOUT)
   // while this screen was still asking. The socket usually says so; this 5 s
   // incident poll is the backstop, so the alarm can never ring on forever.

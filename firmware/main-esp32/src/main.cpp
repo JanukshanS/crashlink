@@ -1242,6 +1242,10 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
 
   logf("INCIDENT %s %s (peak %.2f g, %.0f dps, tilt %.0f)", type.c_str(), eventId.c_str(), peaks.accelG, peaks.gyroDps, peaks.maxTilt);
   mode = sos ? ESCALATED : (emergency ? AWAITING_RESPONSE : RESOLVED);
+  // Clear presses from before the incident now. Presses made while the bike is
+  // busy with SMS and the photo below are kept (seen on the real bike: SAFE
+  // pressed during the SMS used to be thrown away).
+  evSafe = evSos = false;
   beep(600);
 
   // 1. Report first - it is small and it is what puts the question on the rider's phone.
@@ -1257,7 +1261,7 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
     smsWithReporting(eventId, "OWNER_SMS", assignment.ownerPhone, ownerText);
     // The app only asks while it is open (no push in the MVP), so the bike also
     // asks the rider by SMS - it reaches a phone whose app is closed.
-    if (emergency && !sos && assignment.driverPhone.length()) {
+    if (emergency && !sos && assignment.driverPhone.length() && !evSafe) {
       smsWithReporting(eventId, "DRIVER_SMS", assignment.driverPhone,
                        String("CRASHLINK: ") + smsLabel(type) + " on " + bike + " at " + when.substring(0, 5) +
                            ". Are you safe? Press SAFE on the bike or open CrashLink. No reply in 60s alerts your contact.");
@@ -1275,6 +1279,10 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   if (!capturePhoto(eventId) && up.ok) {
     // Say so, or the owner sees "Waiting for photo" forever (FR-IMG-03).
     upsertIncident(eventId, type, occurredAt, ign, preSpeed, preSpeedKnown, peaks, fallenMs, g, "FAILED", nullptr, "", 0);
+  } else if (up.ok && photo && !uploadPhoto(eventId)) {
+    // Uploaded now, not after the decision: the owner sees it within seconds.
+    pendingPhotoEvent = eventId;
+    lastPhotoTry = millis();
   }
 
   // 4. The rider's answer (EMERGENCY falls only).
@@ -1287,7 +1295,6 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
     const int64_t graceEnd = deadline + DEADLINE_GRACE_MS / 1000;
     int64_t lastGoodPoll = 0;
     uint32_t lastPoll = 0, lastBeat = millis();
-    evSafe = evSos = false;
     while (decision.isEmpty()) {
       if (evSafe) {
         evSafe = false;
@@ -1356,8 +1363,9 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   }
 
   // 5. Photo last - slowest and least time-critical (E.1.4).
-  if (up.ok && photo && !uploadPhoto(eventId)) {
-    pendingPhotoEvent = eventId;  // resumable: the loop retries from the server's offset
+  // Offline at the start: the photo waits for the retry loop once the link is back.
+  if (!up.ok && photo) {
+    pendingPhotoEvent = eventId;
     lastPhotoTry = millis();
   }
 

@@ -47,6 +47,8 @@ export const IncidentResponseDtoSchema = z.object({
   serverAcceptedAt: IsoDateTimeSchema,
   accepted: z.boolean(),
   reason: z.string().nullable(),
+  /** When the bike acknowledged this decision; null until it has ("syncing to bike"). */
+  syncedToDeviceAt: IsoDateTimeSchema.nullable(),
 });
 
 export const IncidentTimelineEntrySchema = z.object({
