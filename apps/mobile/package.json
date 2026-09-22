@@ -10,7 +10,8 @@
     "apk": "expo prebuild -p android --clean && cd android && gradlew.bat assembleRelease",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "expo lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eas-build-post-install": "cd ../.. && npm run build -w packages/contracts"
   },
   "dependencies": {
     "@crashlink/contracts": "*",
