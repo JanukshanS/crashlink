@@ -1272,13 +1272,19 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
 
   // 6. Re-arm only after 5 s upright (D10).
   mode = REARM_WAIT;
-  uint32_t uprightSince = 0;
+  uint32_t uprightSince = 0, lastBeat = millis();
   while (true) {
     if (tiltNow < RECOVER_ANGLE_DEG) {
       if (!uprightSince) uprightSince = millis();
       if (millis() - uprightSince >= REARM_UPRIGHT_MS) break;
     } else {
       uprightSince = 0;
+    }
+    // The bike may lie on its side for minutes: keep reporting, or the server's
+    // dead-man rule flags it offline during the rental (seen on the real bike).
+    if (millis() - lastBeat > HEARTBEAT_MS) {
+      lastBeat = millis();
+      heartbeat();
     }
     delay(100);
   }
