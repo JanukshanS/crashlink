@@ -52,7 +52,7 @@ constexpr float COLLISION_SPEED_KPH = 20;
 constexpr uint32_t SOS_HOLD_MS = 1000;
 constexpr uint32_t CONTROL_POLL_MS = 3000;
 constexpr uint32_t HEARTBEAT_MS = 10000;
-constexpr size_t IMAGE_CHUNK = 2048;          // Appendix E.1.5
+constexpr size_t IMAGE_CHUNK = 4096;          // one request for a ~4 KB QVGA frame (server allows 8 KB)
 
 HardwareSerial& gpsSerial = Serial2;
 HardwareSerial& sim = Serial1;
@@ -85,6 +85,7 @@ struct GpsSnapshot {
   float speedKph = 0, hdop = 0;
   int sats = 0;
   uint32_t fixMillis = 0;
+  int64_t fixEpoch = 0;  // set when the fix is remembered from before this boot (NVS)
 };
 GpsSnapshot gpsSnap;
 
@@ -472,14 +473,40 @@ String at(const String& cmd, uint32_t ms = 2000, const char* until = "OK") {
 int csqCache = -1;
 bool modemOk = false;
 
-void modemInit() {
+constexpr uint32_t MODEM_FAST_BAUD = 57600;
+uint32_t modemBaud = 9600;
+
+bool modemAt(uint32_t baud, int tries) {
+  sim.updateBaudRate(baud);
+  delay(50);
   String r;
-  for (int i = 0; i < 8 && r.indexOf("OK") < 0; i++) r = at("AT", 800);
-  modemOk = r.indexOf("OK") >= 0;
+  for (int i = 0; i < tries && r.indexOf("OK") < 0; i++) r = at("AT", 600);
+  return r.indexOf("OK") >= 0;
+}
+
+void modemInit() {
+  // Speed: 9600 baud moves ~1 KB/s, so a heartbeat body alone cost a second.
+  // The modem may already be at the fast rate (the ESP32 rebooted, the modem
+  // did not), so look for it at both rates, then switch up for this session.
+  // AT+IPR without AT&W is volatile: a modem power cycle falls back safely.
+  if (modemAt(9600, 6)) modemBaud = 9600;
+  else if (modemAt(MODEM_FAST_BAUD, 4)) modemBaud = MODEM_FAST_BAUD;
+  else modemBaud = 0;
+  modemOk = modemBaud != 0;
   if (!modemOk) {
+    sim.updateBaudRate(9600);
     logf("SIM800L: no reply - SMS will not work");
     return;
   }
+  if (modemBaud != MODEM_FAST_BAUD) {
+    at("AT+IPR=" + String(MODEM_FAST_BAUD));
+    if (modemAt(MODEM_FAST_BAUD, 4)) {
+      modemBaud = MODEM_FAST_BAUD;
+    } else {
+      modemAt(9600, 4);  // the modem did not follow; stay slow but working
+    }
+  }
+  logf("SIM800L UART %lu baud", modemBaud);
   at("ATE0");
   at("AT+CMGF=1");          // SMS text mode
   at("AT+CSCS=\"GSM\"");
@@ -571,9 +598,16 @@ String oneLine(String s) {
   return s;
 }
 
+// Speed: after a recent success, skip the bearer check and reuse the open HTTP
+// session - each saves several AT round trips per request.
+uint32_t lastHttpOk = 0;
+bool httpSessionOpen = false;
+
 bool ensureLink() {
+  if (lastHttpOk && millis() - lastHttpOk < 30000) return true;
   String st = at("AT+SAPBR=2,1");
   if (st.indexOf("+SAPBR: 1,1") >= 0) return true;
+  httpSessionOpen = false;
   // Log why, so a failed link is diagnosable from the serial monitor.
   static uint32_t lastDiag = 0;
   const bool diag = millis() - lastDiag > 15000;
@@ -597,6 +631,14 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
   HttpResult r;
   if (!ensureLink()) return r;
   const bool post = strcmp(method, "GET") != 0;
+  // Any failure below closes the session so the next request starts clean.
+  auto fail = [&]() -> HttpResult {
+    at("AT+HTTPTERM", 1000);
+    httpSessionOpen = false;
+    lastHttpOk = 0;
+    return r;
+  };
+  if (!httpSessionOpen) {
   at("AT+HTTPTERM", 1000);
   if (at("AT+HTTPINIT").indexOf("OK") < 0) {
     // Seen on the real bike: after a brown-out mid-request the HTTP stack stays
@@ -606,28 +648,28 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
       logf("HTTP stack stuck - resetting modem (AT+CFUN=1,1)");
       at("AT+CFUN=1,1", 3000);
       delay(8000);
+      modemInit();  // the reset drops the fast baud rate; find the modem again
       for (int i = 0; i < 20 && at("AT+CREG?").indexOf(",1") < 0; i++) delay(1500);
-      at("ATE0");
-      at("AT+CMGF=1");
+      lastHttpOk = 0;
       return r;  // the caller retries on its next cycle, with a fresh bearer
     }
   }
   at("AT+HTTPPARA=\"CID\",1");
   at("AT+HTTPSSL=0");
-  at("AT+HTTPPARA=\"URL\",\"" + url + "\"");
+  httpSessionOpen = true;
+  }
+  // A reused session can vanish (modem reset, SMS reboot): fail fast, not after 60 s.
+  if (at("AT+HTTPPARA=\"URL\",\"" + url + "\"").indexOf("OK") < 0) return fail();
   if (post) {
     at(String("AT+HTTPPARA=\"CONTENT\",\"") + contentType + "\"");
-    if (at("AT+HTTPDATA=" + String(len) + ",20000", 5000, "DOWNLOAD").indexOf("DOWNLOAD") < 0) {
-      at("AT+HTTPTERM");
-      return r;
-    }
-    for (size_t off = 0; off < len; off += 256) {
-      sim.write(body + off, min((size_t)256, len - off));
-      delay(10);
+    if (at("AT+HTTPDATA=" + String(len) + ",20000", 5000, "DOWNLOAD").indexOf("DOWNLOAD") < 0) return fail();
+    for (size_t off = 0; off < len; off += 512) {
+      sim.write(body + off, min((size_t)512, len - off));
+      delay(2);
     }
     simRead(20000);
   }
-  at(post ? "AT+HTTPACTION=1" : "AT+HTTPACTION=0");
+  if (at(post ? "AT+HTTPACTION=1" : "AT+HTTPACTION=0").indexOf("ERROR") >= 0) return fail();
   String act = simRead(60000, "+HTTPACTION:", nullptr);
   int idx = act.indexOf("+HTTPACTION:");
   if (idx < 0) {
@@ -635,13 +677,8 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
     // mid-transfer. Put a 470-1000 uF capacitor across SIM800L VCC/GND.
     const bool rebooted = act.indexOf("Call Ready") >= 0 || act.indexOf("SMS Ready") >= 0 || act.indexOf("RDY") >= 0;
     logf("HTTP: no +HTTPACTION%s (%s)", rebooted ? " - MODEM REBOOTED (power dip)" : "", oneLine(act).substring(0, 80).c_str());
-    if (rebooted) {
-      at("ATE0");
-      at("AT+CMGF=1");
-    } else {
-      at("AT+HTTPTERM");
-    }
-    return r;
+    if (rebooted) modemInit();  // it came back at its default rate
+    return fail();
   }
   // +HTTPACTION: <method>,<status>,<length> - the match fires on the prefix, so
   // wait for the rest of the line before parsing (seen on the real bike).
@@ -663,7 +700,9 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
       r.body = raw.substring(start, start + bodyLen);
     }
   }
-  at("AT+HTTPTERM");
+  // Session stays open for the next request (no HTTPTERM/HTTPINIT round trips).
+  if (r.status > 0) lastHttpOk = millis();
+  else return fail();
   return r;
 }
 #endif
@@ -678,10 +717,13 @@ HttpResult deviceRequest(const char* method, const String& path, const uint8_t* 
   const String url = String(CL_API_BASE) + path + "?dev=" + CL_DEVICE_CODE + "&ts=" + ts + "&nonce=" + nonce +
                      "&sig=" + hmacHex(CL_DEVICE_SECRET, canonical);
   netBusy = true;
+  const uint32_t started = millis();
   HttpResult r = httpRaw(method, url, body, len, contentType);
   netBusy = false;
   netOk = r.status >= 200 && r.status < 500;
-  if (r.status != 200) logf("%s %s -> %d %s", method, path.c_str(), r.status, r.body.substring(0, 160).c_str());
+  const String shortPath = path.length() > 40 ? path.substring(0, 22) + "..." + path.substring(path.length() - 12) : path;
+  if (r.status != 200) logf("%s %s -> %d in %lu ms %s", method, shortPath.c_str(), r.status, millis() - started, r.body.substring(0, 120).c_str());
+  else logf("%s %s -> 200 in %lu ms (%u B)", method, shortPath.c_str(), millis() - started, (unsigned)len);
   return r;
 }
 
@@ -977,6 +1019,40 @@ String mapsOrNone(const GpsSnapshot& g) {
   return String(buf);
 }
 
+/** spec 5.3.10: "LIVE loc <link>" / "LAST KNOWN 11:29 <link>" / "Location unavailable...". */
+String locationText(const GpsSnapshot& g, int64_t atEpoch) {
+  if (!g.everFixed) return mapsOrNone(g);
+  const int64_t fixEpoch = g.fixEpoch ? g.fixEpoch : epochAtMillis(g.fixMillis);
+  if (atEpoch - fixEpoch <= 30) return "LIVE loc " + mapsOrNone(g);
+  return "LAST KNOWN " + colomboTime(fixEpoch).substring(0, 5) + " " + mapsOrNone(g);
+}
+
+// --- Last known fix, remembered across reboots (a cold GPS indoors takes minutes) ---
+GpsSnapshot lastKnownFix() {
+  GpsSnapshot s;
+  if (!nvs.isKey("lkAt")) return s;
+  s.lat = nvs.getDouble("lkLat", 0);
+  s.lon = nvs.getDouble("lkLon", 0);
+  s.fixEpoch = nvs.getLong64("lkAt", 0);
+  s.everFixed = s.fixEpoch > 0;
+  return s;
+}
+
+void rememberFix() {
+  static uint32_t lastSaved = 0;
+  if (!clockSynced || (lastSaved && millis() - lastSaved < 300000)) return;  // every 5 min: spare the flash
+  GpsSnapshot g = gpsCopy();
+  if (!g.valid) return;
+  nvs.putDouble("lkLat", g.lat);
+  nvs.putDouble("lkLon", g.lon);
+  nvs.putLong64("lkAt", epochAtMillis(g.fixMillis));
+  lastSaved = millis();
+}
+
+// A photo whose upload failed is retried from the monitoring loop until it lands.
+String pendingPhotoEvent;
+uint32_t lastPhotoTry = 0;
+
 void reportSms(const String& eventId, const char* kind, int attempt, const SmsResult& r) {
   JsonDocument doc;
   doc["schema"] = 1;
@@ -1058,7 +1134,7 @@ UpsertResult upsertIncident(const String& eventId, const String& type, int64_t o
 
   JsonObject loc = doc["location"].to<JsonObject>();
   if (g.everFixed) {
-    int64_t fixEpoch = epochAtMillis(g.fixMillis);
+    int64_t fixEpoch = g.fixEpoch ? g.fixEpoch : epochAtMillis(g.fixMillis);
     int age = (int)max((int64_t)0, occurredAt - fixEpoch);
     loc["kind"] = age <= 30 ? "LIVE" : "LAST_KNOWN";
     loc["lat"] = g.lat;
@@ -1157,7 +1233,8 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   activeEventId = eventId;
   const int64_t occurredAt = nowEpoch();
   const Peaks peaks = motionPeaks();
-  const GpsSnapshot g = gpsCopy();
+  GpsSnapshot g = gpsCopy();
+  if (!g.everFixed) g = lastKnownFix();  // no fix since boot: fall back to the remembered one
   const bool sos = type == "MANUAL_SOS";
   const String when = colomboTime(occurredAt);
   const String bike = shortName(assignment.present ? assignment.bikeLabel : String(CL_DEVICE_CODE));
@@ -1175,7 +1252,7 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   // 2. SMS the owner (and for SOS, the contact straight away - D6).
   if (assignment.present) {
     String ownerText = String("CRASHLINK ALERT ") + bike + ": " + smsLabel(type) + " " + when + ". " +
-                       (g.everFixed ? "LIVE loc " : "") + maps + (emergency && !sos ? " Rider asked if safe." : "");
+                       locationText(g, occurredAt) + (emergency && !sos ? " Rider asked if safe." : "");
     if (!emergency) ownerText = String("CRASHLINK ") + bike + ": " + smsLabel(type) + " " + when + " " + maps;
     smsWithReporting(eventId, "OWNER_SMS", assignment.ownerPhone, ownerText);
     if (sos) {
@@ -1187,7 +1264,11 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   }
 
   // 3. Photo now (the scene as it is), uploaded last.
-  capturePhoto(eventId);
+  pendingPhotoEvent = "";
+  if (!capturePhoto(eventId) && up.ok) {
+    // Say so, or the owner sees "Waiting for photo" forever (FR-IMG-03).
+    upsertIncident(eventId, type, occurredAt, ign, preSpeed, preSpeedKnown, peaks, fallenMs, g, "FAILED", nullptr, "", 0);
+  }
 
   // 4. The rider's answer (EMERGENCY falls only).
   String decision = sos ? "HELP" : "";
@@ -1268,7 +1349,10 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   }
 
   // 5. Photo last - slowest and least time-critical (E.1.4).
-  if (up.ok && photo) uploadPhoto(eventId);
+  if (up.ok && photo && !uploadPhoto(eventId)) {
+    pendingPhotoEvent = eventId;  // resumable: the loop retries from the server's offset
+    lastPhotoTry = millis();
+  }
 
   // 6. Re-arm only after 5 s upright (D10).
   mode = REARM_WAIT;
@@ -1405,6 +1489,12 @@ void loop() {
   if (mode == MONITORING && now - lastBeat >= HEARTBEAT_MS) {
     lastBeat = now;
     heartbeat();
+  }
+  if (mode == MONITORING) rememberFix();
+  if (mode == MONITORING && pendingPhotoEvent.length() && now - lastPhotoTry > 20000) {
+    lastPhotoTry = now;
+    logf("retrying photo upload for %s", pendingPhotoEvent.substring(0, 8).c_str());
+    if (uploadPhoto(pendingPhotoEvent)) pendingPhotoEvent = "";
   }
   if (now - lastClock > 10UL * 60 * 1000) {
     lastClock = now;

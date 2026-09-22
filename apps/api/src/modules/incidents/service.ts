@@ -154,10 +154,20 @@ export class IncidentService {
         questionSentAt: true,
         responseDeadlineAt: true,
         quarantined: true,
+        photoStatus: true,
       },
     });
 
     if (existing) {
+      // FR-IMG-03: the one field a repeat report may change - a photo still
+      // waiting may be declared FAILED (the camera capture did not work), so
+      // the owner stops seeing "Waiting for photo". Never overrides progress.
+      if (body.photoStatus === 'FAILED' && (existing.photoStatus === 'PENDING' || existing.photoStatus === 'NOT_REQUESTED')) {
+        await prisma.incident.updateMany({
+          where: { id: existing.id, photoStatus: { in: ['PENDING', 'NOT_REQUESTED'] } },
+          data: { photoStatus: 'FAILED' },
+        });
+      }
       return {
         incidentId: existing.id,
         state: existing.state,

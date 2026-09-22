@@ -548,6 +548,22 @@ describe('FR-INC-01 / FR-INC-06 - idempotency and quarantine', () => {
     expect(ctx.realtime.byName('incident.question')).toHaveLength(1);
   });
 
+  it('lets a repeat report mark a waiting photo FAILED, but never overrides a real photo (FR-IMG-03)', async () => {
+    const scene = await setupActiveRental();
+    const eventId = randomUUID();
+    await reportCollision(scene, { eventId });
+
+    // Real bike: the camera capture failed, so it re-reports with FAILED.
+    await reportCollision(scene, { eventId, photoStatus: 'FAILED' });
+    expect((await ctx.prisma.incident.findUniqueOrThrow({ where: { id: eventId } })).photoStatus).toBe('FAILED');
+
+    // A photo that did arrive is never walked back by a stale report.
+    await ctx.prisma.incident.update({ where: { id: eventId }, data: { photoStatus: 'AVAILABLE' } });
+    await reportCollision(scene, { eventId, photoStatus: 'FAILED' });
+    expect((await ctx.prisma.incident.findUniqueOrThrow({ where: { id: eventId } })).photoStatus).toBe('AVAILABLE');
+    expect(await ctx.prisma.incident.count()).toBe(1);
+  });
+
   it('quarantines an assignmentVersion mismatch with serverQuestion=false', async () => {
     const scene = await setupActiveRental();
 
