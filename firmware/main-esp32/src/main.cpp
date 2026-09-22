@@ -643,7 +643,13 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
     }
     return r;
   }
-  // +HTTPACTION: <method>,<status>,<length>
+  // +HTTPACTION: <method>,<status>,<length> - the match fires on the prefix, so
+  // wait for the rest of the line before parsing (seen on the real bike).
+  uint32_t lineStart = millis();
+  while (act.indexOf('\n', idx) < 0 && millis() - lineStart < 2000) {
+    while (sim.available()) act += char(sim.read());
+    delay(5);
+  }
   int c1 = act.indexOf(',', idx), c2 = act.indexOf(',', c1 + 1);
   r.status = act.substring(c1 + 1, c2).toInt();
   int bodyLen = act.substring(c2 + 1).toInt();
