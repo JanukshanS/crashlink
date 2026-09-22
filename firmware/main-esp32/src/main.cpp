@@ -42,14 +42,14 @@ constexpr int PIN_BUZZER = 13;  // active buzzer, wired directly
 // --- Detection parameters (spec 5.3.8 / 5.3.9 defaults) -------------------------
 constexpr float FALL_ANGLE_DEG = 60;
 constexpr float RECOVER_ANGLE_DEG = 40;
-constexpr uint32_t FALL_CONFIRM_MS = 10000;   // pinned: 10 s
+constexpr uint32_t FALL_CONFIRM_MS = 5000;    // team decision 22 Sep: 5 s (was 10 s)
 constexpr uint32_t RESPONSE_WINDOW_MS = 60000;  // pinned: 60 s (server-timed when online)
 constexpr uint32_t DEADLINE_GRACE_MS = 15000;
 constexpr uint32_t REARM_UPRIGHT_MS = 5000;
 constexpr float IMPACT_G = 2.5;
 constexpr float ROLLOVER_DEG_IN_2S = 150;
 constexpr float COLLISION_SPEED_KPH = 20;
-constexpr uint32_t SOS_HOLD_MS = 1000;
+constexpr uint32_t SOS_HOLD_MS = 2000;  // team decision 22 Sep: 2 s hold (was 1 s)
 constexpr uint32_t CONTROL_POLL_MS = 3000;
 constexpr uint32_t HEARTBEAT_MS = 10000;
 constexpr size_t IMAGE_CHUNK = 4096;          // one request for a ~4 KB QVGA frame (server allows 8 KB)
@@ -382,7 +382,7 @@ void sensorTask(void*) {
         if (pressed) beep(50);
       }
     }
-    // SOS needs a 1 s hold (spec 5.3.8: debounced, 1 s hold) so a bump does not call for help.
+    // SOS needs a 2 s hold (team decision; spec 5.3.8 said 1 s) so a bump does not call for help.
     if (sosDownAt && !sosFired && now - sosDownAt >= SOS_HOLD_MS) {
       sosFired = true;
       evSos = true;
@@ -1241,6 +1241,83 @@ void ackDecision(const String& eventId, const String& commandId, const char* loc
   deviceJson("POST", "/d/v1/incidents/" + eventId + "/control/" + commandId + "/ack", doc);
 }
 
+// --- Active incident in NVS (spec Appendix E: evtId/evtJson) ------------------
+// Seen on the real bike: a restart mid-incident (power dip on an SMS burst)
+// lost the pending contact SMS. The incident is saved, and resumed at boot.
+void saveActiveIncident(const String& eventId, const String& type, int64_t occurredAt, int64_t deadline) {
+  nvs.putString("evtId", eventId);
+  nvs.putString("evtType", type);
+  nvs.putLong64("evtAt", occurredAt);
+  nvs.putLong64("evtDl", deadline);
+  nvs.putBool("evtCS", false);
+}
+void markContactSmsSent() { nvs.putBool("evtCS", true); }
+void clearActiveIncident() {
+  nvs.remove("evtId");
+  nvs.remove("evtType");
+  nvs.remove("evtAt");
+  nvs.remove("evtDl");
+  nvs.remove("evtCS");
+}
+
+String contactSmsText(const String& when, const String& maps, const String& decision) {
+  String why = decision == "HELP" ? " Rider asked for help." : " No reply to safety check.";
+  return String("CRASHLINK: ") + shortName(assignment.driverName) + " may need help. Possible bike accident " + when + " " + maps +
+         why + " Ambulance 1990";
+}
+
+/** After a restart: finish an incident that was cut short, so the contact is never left unwarned. */
+void resumeActiveIncident() {
+  if (!nvs.isKey("evtId")) return;
+  const String eventId = nvs.getString("evtId", "");
+  const int64_t occurredAt = nvs.getLong64("evtAt", 0);
+  const int64_t deadline = nvs.getLong64("evtDl", 0);
+  const bool contactSent = nvs.getBool("evtCS", false);
+  if (eventId.isEmpty() || contactSent || !clockSynced || nowEpoch() - occurredAt > 1800) {
+    clearActiveIncident();
+    return;
+  }
+  logf("RESUMING incident %s after a restart", eventId.substring(0, 8).c_str());
+  activeEventId = eventId;
+  mode = AWAITING_RESPONSE;
+  String decision, commandId;
+  const int64_t graceEnd = (deadline ? deadline : occurredAt + RESPONSE_WINDOW_MS / 1000) + DEADLINE_GRACE_MS / 1000;
+  bool reachedServer = false;
+  while (decision.isEmpty()) {
+    if (evSafe) {
+      evSafe = false;
+      String d = localResponse(eventId, "SAFE");
+      decision = d.length() && d != "PENDING" ? d : "SAFE";
+      break;
+    }
+    Control c = pollControl(eventId);
+    if (c.ok) {
+      reachedServer = true;
+      if (c.decision != "PENDING" && c.decision != "NOT_APPLICABLE") {
+        decision = c.decision;
+        commandId = c.commandId;
+        break;
+      }
+    }
+    if (nowEpoch() >= graceEnd && !reachedServer) decision = "OFFLINE_FALLBACK";
+    if (nowEpoch() >= graceEnd + 120) decision = "OFFLINE_FALLBACK";  // never wait forever
+    delay(CONTROL_POLL_MS);
+  }
+  logf("resumed decision: %s", decision.c_str());
+  if (decision != "SAFE" && assignment.present) {
+    GpsSnapshot g = gpsCopy();
+    if (!g.everFixed) g = lastKnownFix();
+    mode = ESCALATED;
+    if (smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone,
+                         contactSmsText(colomboTime(occurredAt), mapsOrNone(g), decision)))
+      markContactSmsSent();
+  }
+  if (commandId.length()) ackDecision(eventId, commandId, decision == "SAFE" ? "RESOLVED" : "ESCALATED");
+  clearActiveIncident();
+  activeEventId = "";
+  mode = MONITORING;
+}
+
 void runIncident(const String& type, bool emergency, bool ign, float preSpeed, bool preSpeedKnown, uint32_t fallenMs) {
   const String eventId = uuid4();
   activeEventId = eventId;
@@ -1265,6 +1342,7 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
   UpsertResult up = upsertIncident(eventId, type, occurredAt, ign, preSpeed, preSpeedKnown, peaks, fallenMs, g, "PENDING",
                                    sos ? "HELP" : nullptr, "DEVICE_BUTTON", occurredAt);
   logf("incident reported: %s, serverQuestion=%d", up.ok ? "yes" : "NO (offline - deciding locally)", up.serverQuestion);
+  if (emergency) saveActiveIncident(eventId, type, occurredAt, up.serverQuestion ? up.deadlineEpoch : 0);
 
   // 2. SMS the owner (and for SOS, the contact straight away - D6).
   if (assignment.present) {
@@ -1280,8 +1358,9 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
                            ". Are you safe? Press SAFE on the bike or open CrashLink. No reply in 60s alerts your contact.");
     }
     if (sos) {
-      smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone,
-                       String("CRASHLINK: ") + shortName(assignment.driverName) + " pressed SOS " + when + " " + maps + " Ambulance 1990");
+      if (smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone,
+                           String("CRASHLINK: ") + shortName(assignment.driverName) + " pressed SOS " + when + " " + maps + " Ambulance 1990"))
+        markContactSmsSent();
     }
   } else {
     logf("no rental assigned - nobody to text");
@@ -1354,15 +1433,13 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
 
     if (decision == "SAFE") {
       mode = RESOLVED;
+      clearActiveIncident();
       logf("rider is SAFE - no contact SMS");
     } else {
       mode = ESCALATED;
-      if (assignment.present) {
-        String why = decision == "HELP" ? " Rider asked for help." : " No reply to safety check.";
-        smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone,
-                         String("CRASHLINK: ") + shortName(assignment.driverName) + " may need help. Possible bike accident " + when + " " +
-                             maps + why + " Ambulance 1990");
-      }
+      if (assignment.present &&
+          smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone, contactSmsText(when, maps, decision)))
+        markContactSmsSent();
     }
     if (commandId.length()) ackDecision(eventId, commandId, mode == RESOLVED ? "RESOLVED" : "ESCALATED");
 
@@ -1400,6 +1477,7 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
     }
     delay(100);
   }
+  clearActiveIncident();
   activeEventId = "";
   evSafe = evSos = false;
   mode = MONITORING;
@@ -1455,6 +1533,7 @@ void setup() {
   syncClock();
   mode = MONITORING;
   heartbeat();
+  resumeActiveIncident();
   logf("ready: ignition %s. Press ignition to toggle, hold SOS 1 s, tip past %.0f deg for %lus to trigger.",
        ignitionOn ? "ON" : "OFF", FALL_ANGLE_DEG, FALL_CONFIRM_MS / 1000);
 }

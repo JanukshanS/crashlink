@@ -1,7 +1,7 @@
 /**
  * Device settings (§2.3.2, §2.3.7, FR-DEV-05).
  *
- * The two safety parameters - 10 s fall check and 60 s response window - are
+ * The two safety parameters - 5 s fall check and 60 s response window - are
  * **display only**. They were agreed by the team (S5) and the server rejects
  * changes from an owner, so the UI does not pretend they are editable.
  *

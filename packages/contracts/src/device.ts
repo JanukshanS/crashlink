@@ -94,7 +94,7 @@ export const DEFAULT_DEVICE_CONFIG: DeviceConfig = {
   telemetryOnSec: 10,
   telemetryOffSec: 60,
   controlPollSec: 3,
-  fallConfirmSec: 10,
+  fallConfirmSec: 5,
   responseWindowSec: 60,
   offlineFallbackSec: 60,
   deadlineGraceSec: 15,
@@ -120,7 +120,8 @@ export const DEFAULT_DEVICE_CONFIG: DeviceConfig = {
  */
 export const LOCKED_CONFIG_FIELDS = ['fallConfirmSec', 'responseWindowSec'] as const;
 export const LOCKED_CONFIG_VALUES: Record<(typeof LOCKED_CONFIG_FIELDS)[number], number> = {
-  fallConfirmSec: 10,
+  // Team decision 22 Sep 2026: 5 s (was 10 s), after testing on the model bike.
+  fallConfirmSec: 5,
   responseWindowSec: 60,
 };
 

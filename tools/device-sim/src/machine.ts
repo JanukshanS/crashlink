@@ -31,7 +31,7 @@ export interface MachineConfig {
 }
 
 export const DEFAULT_MACHINE_CONFIG: MachineConfig = {
-  fallConfirmSec: 10,
+  fallConfirmSec: 5,
   responseWindowSec: 60,
   controlPollSec: 3,
   deadlineGraceSec: 15,
@@ -219,7 +219,7 @@ export class DeviceMachine {
 
   /**
    * §4.5.1 FALL_CANDIDATE -> INCIDENT: the tilt has to persist for
-   * `fallConfirmSec` (10 s, fixed) before anything is reported. This is the
+   * `fallConfirmSec` (5 s, fixed) before anything is reported. This is the
    * single most important delay in the product - it is what stops a dropped
    * bike on a kickstand from calling someone's mother.
    */

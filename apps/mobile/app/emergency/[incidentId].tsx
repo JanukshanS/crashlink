@@ -163,7 +163,8 @@ export default function EmergencyScreen() {
           spinner: false,
         };
       case 'resolvedElsewhere':
-        return { text: t('emergency.resolvedOnBike'), spinner: false };
+        // Pressed on the bike: identical to an in-app SAFE, and synced by definition.
+        return { text: t('emergency.synced'), spinner: false };
       case 'offline':
         return { text: t('emergency.cannotReach'), spinner: true };
       default:
@@ -287,8 +288,11 @@ export default function EmergencyScreen() {
           </View>
         ) : null}
 
-        {choice === 'SAFE' && answered ? (
+        {(choice === 'SAFE' && answered) || status === 'resolvedElsewhere' ? (
           <Text style={styles.body}>{t('emergency.resolvedSafe')}</Text>
+        ) : null}
+        {status === 'resolvedElsewhere' ? (
+          <Text style={styles.body}>{t('emergency.resolvedOnBike')}</Text>
         ) : null}
 
         {/* D7: somebody else decided first - say what won, and when. */}

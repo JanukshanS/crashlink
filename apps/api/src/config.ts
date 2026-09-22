@@ -35,7 +35,7 @@ const EnvSchema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
   // Locked incident policy (pinned decisions in CLAUDE.md, §5.3.9 S5).
-  FALL_CONFIRM_SEC: z.coerce.number().int().default(10),
+  FALL_CONFIRM_SEC: z.coerce.number().int().default(5),
   RESPONSE_WINDOW_SEC: z.coerce.number().int().default(60),
   DEADLINE_GRACE_SEC: z.coerce.number().int().default(15),
   DEADMAN_ON_SEC: z.coerce.number().int().default(90),
@@ -76,11 +76,11 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): Config => {
   const env = parsed.data;
 
   // The team pinned these (CLAUDE.md). Warn loudly rather than silently drifting.
-  if (env.FALL_CONFIRM_SEC !== 10 || env.RESPONSE_WINDOW_SEC !== 60) {
+  if (env.FALL_CONFIRM_SEC !== 5 || env.RESPONSE_WINDOW_SEC !== 60) {
     // eslint-disable-next-line no-console
     console.warn(
       `[config] Safety parameters differ from the pinned decisions: ` +
-        `fallConfirmSec=${env.FALL_CONFIRM_SEC} (expected 10), ` +
+        `fallConfirmSec=${env.FALL_CONFIRM_SEC} (expected 5), ` +
         `responseWindowSec=${env.RESPONSE_WINDOW_SEC} (expected 60).`,
     );
   }

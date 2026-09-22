@@ -59,6 +59,9 @@ export const useAcknowledgeIncident = (id: string) => {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.incident(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.incidents() });
+      // The dashboard's "Open incidents" count drops as soon as it is closed.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.analytics() });
     },
   });
 };

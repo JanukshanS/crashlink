@@ -17,13 +17,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   scheme: 'crashlink',
   userInterfaceStyle: 'automatic',
+  // Source artwork: docs/app-logo.png (generated into assets/).
+  icon: './assets/icon.png',
 
   android: {
     package: 'lk.iotrix.crashlink',
-    versionCode: 1,
+    versionCode: 2,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#B3261E',
+      // The logo's own navy, so the launcher mask shows no seam.
+      backgroundColor: '#011130',
     },
     permissions: [
       'INTERNET',
