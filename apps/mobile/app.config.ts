@@ -68,6 +68,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           // Plain HTTP to the device gateway host during the demo (§5.3.1);
           // the app itself talks HTTPS in production.
           usesCleartextTraffic: true,
+          // 64-bit ARM only: every phone in use is arm64, and bundling four ABIs
+          // made a 113 MB APK that outlived EAS's 15-minute download link.
+          buildArchs: ['arm64-v8a'],
         },
       },
     ],
