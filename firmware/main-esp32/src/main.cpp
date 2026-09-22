@@ -564,14 +564,32 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
   return r;
 }
 #else
+String oneLine(String s) {
+  s.replace("\r", " ");
+  s.replace("\n", " ");
+  s.trim();
+  return s;
+}
+
 bool ensureLink() {
   String st = at("AT+SAPBR=2,1");
   if (st.indexOf("+SAPBR: 1,1") >= 0) return true;
+  // Log why, so a failed link is diagnosable from the serial monitor.
+  static uint32_t lastDiag = 0;
+  const bool diag = millis() - lastDiag > 15000;
+  if (diag) {
+    lastDiag = millis();
+    logf("GPRS down: %s | %s | %s | %s", oneLine(at("AT+CSQ")).c_str(), oneLine(at("AT+CREG?")).c_str(),
+         oneLine(at("AT+CGATT?")).c_str(), oneLine(st).c_str());
+  }
+  if (at("AT+CREG?").indexOf(",1") < 0 && at("AT+CREG?").indexOf(",5") < 0) return false;  // not on the network yet
   // Appendix E.1.4: open once, check before use, reopen only on failure.
   at("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\"");
   at(String("AT+SAPBR=3,1,\"APN\",\"") + CL_APN + "\"");
-  at("AT+SAPBR=1,1", 85000);
-  return at("AT+SAPBR=2,1").indexOf("+SAPBR: 1,1") >= 0;
+  String open = at("AT+SAPBR=1,1", 85000);
+  bool ok = at("AT+SAPBR=2,1").indexOf("+SAPBR: 1,1") >= 0;
+  logf("GPRS bearer open: %s (%s)", ok ? "OK" : "FAILED", oneLine(open).c_str());
+  return ok;
 }
 
 /** SIM800L HTTP: only GET and POST exist (AT+HTTPACTION 0/1) - the server accepts POST for PUT routes. */
@@ -600,6 +618,7 @@ HttpResult httpRaw(const char* method, const String& url, const uint8_t* body, s
   String act = simRead(60000, "+HTTPACTION:", nullptr);
   int idx = act.indexOf("+HTTPACTION:");
   if (idx < 0) {
+    logf("HTTP: no +HTTPACTION (%s)", oneLine(act).substring(0, 80).c_str());
     at("AT+HTTPTERM");
     return r;
   }
