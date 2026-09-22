@@ -254,6 +254,26 @@ export class IncidentService {
       decision = isEmergency ? 'PENDING' : 'NOT_APPLICABLE';
     }
 
+    // The bike had no fix (cold GPS, indoors): fall back to its last known GPS
+    // position, labelled LAST_KNOWN with its real age - never passed off as live.
+    let location = body.location;
+    if (location.kind === 'UNAVAILABLE') {
+      const last = await prisma.bike.findUnique({
+        where: { id: input.bikeId },
+        select: { lastLat: true, lastLon: true, lastFixAt: true, lastLocationSource: true },
+      });
+      if (last?.lastLat != null && last.lastLon != null && last.lastFixAt && last.lastLocationSource === 'GPS') {
+        location = {
+          kind: 'LAST_KNOWN',
+          lat: last.lastLat,
+          lon: last.lastLon,
+          fixAt: last.lastFixAt.toISOString(),
+          ageSecondsAtEvent: Math.max(0, Math.round((new Date(body.occurredAt).getTime() - last.lastFixAt.getTime()) / 1000)),
+          src: 'GPS',
+        };
+      }
+    }
+
     const questionSentAt = serverQuestion ? now : null;
     const responseDeadlineAt = serverQuestion
       ? addSeconds(now, this.deps.responseWindowSec)
@@ -278,12 +298,12 @@ export class IncidentService {
           timeSource: body.timeSource,
           ignitionAtEvent: body.ignition,
           preEventSpeedKph: body.preEventSpeedKph,
-          locationKind: body.location.kind,
-          lat: body.location.lat,
-          lon: body.location.lon,
-          fixAt: body.location.fixAt ? new Date(body.location.fixAt) : null,
-          fixAgeSec: body.location.ageSecondsAtEvent,
-          locationSource: body.location.src,
+          locationKind: location.kind,
+          lat: location.lat,
+          lon: location.lon,
+          fixAt: location.fixAt ? new Date(location.fixAt) : null,
+          fixAgeSec: location.ageSecondsAtEvent,
+          locationSource: location.src,
           evidence,
           sensorWindow: (body.sensorWindow ?? null) as Prisma.InputJsonValue,
           assignmentVersion: body.assignmentVersion,

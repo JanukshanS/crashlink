@@ -250,6 +250,12 @@ export const DeviceEnvelopeSchema = z.object({
 
 export const HeartbeatResponseSchema = DeviceEnvelopeSchema.extend({
   nextIntervalSec: z.number().int().positive(),
+  /**
+   * Sent only when the heartbeat carried no valid fix: the bike's last known
+   * GPS position, so a bike with a cold GPS can still say "LAST KNOWN 13:59"
+   * in its SMS instead of "location unavailable".
+   */
+  lastKnown: z.object({ lat: z.number(), lon: z.number(), fixAt: IsoDateTimeSchema }).nullable().optional(),
 });
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponseSchema>;
 

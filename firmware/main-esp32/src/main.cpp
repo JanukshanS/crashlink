@@ -875,7 +875,20 @@ void heartbeat() {
   if (r.status == 200) {
     ignitionEventCount = 0;
     JsonDocument resp;
-    if (!deserializeJson(resp, r.body)) applyCommands(resp["commands"]);
+    if (!deserializeJson(resp, r.body)) {
+      applyCommands(resp["commands"]);
+      // No fix of our own this boot: remember the server's last known GPS
+      // position, so an SMS says "LAST KNOWN 13:59" rather than "unavailable".
+      JsonVariantConst lk = resp["lastKnown"];
+      if (lk.is<JsonObjectConst>() && !gpsCopy().everFixed) {
+        const int64_t at = epochFromIso(lk["fixAt"] | "");
+        if (at > 0 && at > nvs.getLong64("lkAt", 0)) {
+          nvs.putDouble("lkLat", lk["lat"] | 0.0);
+          nvs.putDouble("lkLon", lk["lon"] | 0.0);
+          nvs.putLong64("lkAt", at);
+        }
+      }
+    }
   } else if (r.status == 401) {
     clockSynced = false;  // a stale clock is the usual cause; resync next time
   }
@@ -1524,8 +1537,10 @@ void loop() {
   if (now - lastStatus > 5000) {
     lastStatus = now;
     GpsSnapshot g = gpsCopy();
-    logf("%s | ign %s | tilt %.0f | GPS %s %d sats | net %s | rider %s", modeName(mode), ignitionOn ? "ON" : "OFF", tiltNow,
-         g.valid ? "fix" : "no fix", g.sats, netOk ? "ok" : "down", assignment.present ? assignment.driverName.c_str() : "-");
+    // GPS diagnosis: chars=0 -> no data (power/wiring); chars>0 but 0 sats -> no sky view / antenna.
+    logf("%s | ign %s | tilt %.0f | GPS %s %d sats, %lu chars | net %s | rider %s", modeName(mode), ignitionOn ? "ON" : "OFF", tiltNow,
+         g.valid ? "fix" : "no fix", g.sats, (unsigned long)gps.charsProcessed(), netOk ? "ok" : "down",
+         assignment.present ? assignment.driverName.c_str() : "-");
   }
   delay(20);
 }

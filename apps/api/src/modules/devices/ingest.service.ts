@@ -62,6 +62,7 @@ export interface HeartbeatOutcome extends DeviceEnvelope {
   acceptedFixes: number;
   rejectedFixes: number;
   incidents: IncidentUpsertResult[];
+  lastKnown?: { lat: number; lon: number; fixAt: string } | null;
 }
 
 /** The bike a device is paired to, with the owner needed for scoping. */
@@ -379,12 +380,20 @@ export class DeviceIngestService {
         : config.data.telemetryOffSec
       : 60;
 
+    // No valid fix in this heartbeat: hand back the last GPS position we hold,
+    // so the bike can still report and text a "last known" location.
+    const lastKnown =
+      accepted === 0 && bike.lastLat !== null && bike.lastLon !== null && bike.lastFixAt && bike.lastLocationSource === 'GPS'
+        ? { lat: bike.lastLat, lon: bike.lastLon, fixAt: toIsoRequired(bike.lastFixAt) }
+        : null;
+
     return {
       ...(await this.envelope(device, now)),
       nextIntervalSec,
       acceptedFixes: accepted,
       rejectedFixes: rejected,
       incidents,
+      lastKnown,
     };
   }
 

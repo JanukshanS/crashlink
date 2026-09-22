@@ -289,6 +289,59 @@ describe('§5.3.3 heartbeat ingest', () => {
   });
 });
 
+describe('last known location when the GPS has no fix (found on the real bike)', () => {
+  it('hands the last GPS fix back in the heartbeat and uses it for an UNAVAILABLE incident', async () => {
+    const owner = await registerUser(ctx, 'OWNER');
+    const driver = await createReadyDriver(ctx);
+    const device = await createDevice(ctx);
+    const bikeId = await pairDeviceToBike(ctx, owner, device);
+    const { body } = await assignRental(ctx, owner, bikeId, driver.id);
+    await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/rentals/${body.id as string}/force-activate`,
+      headers: auth(owner.accessToken),
+      payload: { confirm: true },
+    });
+
+    // A good fix while the bike could see the sky...
+    const fixAt = ctx.clock.now();
+    const withFix = await ctx.app.inject(
+      signedRequest(ctx, device, {
+        method: 'POST',
+        path: '/d/v1/heartbeat',
+        body: heartbeatBody(ctx, {
+          fixes: [{ t: fixAt.toISOString(), lat: 6.9111, lon: 79.9752, spd: 0, hdop: 1.0, sat: 9, valid: true, src: 'GPS' }],
+        }),
+      }),
+    );
+    expect(withFix.json().lastKnown).toBeUndefined();
+
+    // ...then 10 minutes indoors with no fix: the server hands the last one back.
+    ctx.clock.advanceSeconds(600);
+    const noFix = await ctx.app.inject(
+      signedRequest(ctx, device, { method: 'POST', path: '/d/v1/heartbeat', body: heartbeatBody(ctx, { fixes: [] }) }),
+    );
+    expect(noFix.json().lastKnown).toMatchObject({ lat: 6.9111, lon: 79.9752, fixAt: fixAt.toISOString() });
+    expect(JSON.stringify(noFix.json()).length).toBeLessThan(1024);
+
+    // A fall with no fix is stored as LAST_KNOWN, with its real age - never as live.
+    const eventId = randomUUID();
+    await ctx.app.inject(
+      signedRequest(ctx, device, {
+        method: 'POST',
+        path: `/d/v1/incidents/${eventId}`,
+        body: {
+          ...incidentBody(ctx, { eventId, rentalId: body.id as string, assignmentVersion: body.assignmentVersion as number }),
+          location: { kind: 'UNAVAILABLE', lat: null, lon: null, fixAt: null, ageSecondsAtEvent: null, src: null },
+        },
+      }),
+    );
+    const incident = await ctx.prisma.incident.findUniqueOrThrow({ where: { id: eventId } });
+    expect(incident).toMatchObject({ locationKind: 'LAST_KNOWN', lat: 6.9111, lon: 79.9752, locationSource: 'GPS' });
+    expect(incident.fixAgeSec).toBe(600);
+  });
+});
+
 describe('§5.3.4 commands', () => {
   it('delivers SET_ASSIGNMENT and activates the rental on ack (FR-RENT-03)', async () => {
     const owner = await registerUser(ctx, 'OWNER');

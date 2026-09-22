@@ -76,6 +76,7 @@ export const registerDeviceRoutes = async (
       configVersion: result.configVersion,
       nextIntervalSec: result.nextIntervalSec,
       commands: result.commands,
+      ...(result.lastKnown ? { lastKnown: result.lastKnown } : {}),
     });
   });
 
