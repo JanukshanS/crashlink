@@ -1534,7 +1534,7 @@ void setup() {
   mode = MONITORING;
   heartbeat();
   resumeActiveIncident();
-  logf("ready: ignition %s. Press ignition to toggle, hold SOS 1 s, tip past %.0f deg for %lus to trigger.",
+  logf("ready: ignition %s. X
        ignitionOn ? "ON" : "OFF", FALL_ANGLE_DEG, FALL_CONFIRM_MS / 1000);
 }
 
