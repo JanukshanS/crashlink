@@ -1297,7 +1297,7 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.printf("\n=== CrashLink %s firmware %s (%s) ===\n", CL_DEVICE_CODE, FW_VERSION,
-                CL_TRANSPORT == CL_TRANSPORT_WIFI ? "Wi-Fi to laptop" : "GPRS");
+                CL_TRANSPORT == CL_TRANSPORT_WIFI ? "Wi-Fi" : "GPRS");
   setenv("TZ", "UTC0", 1);
   tzset();
 

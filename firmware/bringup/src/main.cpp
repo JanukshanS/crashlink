@@ -192,19 +192,24 @@ void checkGprs() {
 
 /** GET the VPS clock over GPRS, printing the modem's reply to every step. */
 void resetModem() {
-  Serial.println("\nModem full reset (AT+CFUN=1,1) - clears a stuck HTTP stack:");
-  Serial.printf("  cfun     %s\n", at("AT+CFUN=1,1", 3000).c_str());
-  delay(8000);
-  String creg;
+  Serial.println("\nModem full reset (AT+CFUN=1,1), waiting for its boot banner:");
+  at("AT+CFUN=1,1", 2000);
+  String boot;
   uint32_t start = millis();
-  for (;;) {
-    at("AT", 500);
-    creg = at("AT+CREG?");
-    if (creg.indexOf(",1") >= 0 || creg.indexOf(",5") >= 0 || millis() - start > 45000) break;
-    delay(2000);
+  while (millis() - start < 40000 && boot.indexOf("SMS Ready") < 0) {
+    while (sim.available()) boot += char(sim.read());
+    delay(20);
   }
+  Serial.printf("  banner   %s after %lu s\n", boot.indexOf("SMS Ready") >= 0 ? "SMS Ready" : "(none)", (millis() - start) / 1000);
+  String creg;
+  start = millis();
+  do {
+    creg = at("AT+CREG?");
+    if (creg.indexOf(",1") >= 0 || creg.indexOf(",5") >= 0) break;
+    delay(2000);
+  } while (millis() - start < 45000);
   at("ATE0");
-  Serial.printf("  creg     %s (%lu s)\n", creg.c_str(), (millis() - start) / 1000);
+  Serial.printf("  creg     %s\n", creg.c_str());
 }
 
 void httpGet(const char* url) {
@@ -216,13 +221,17 @@ void httpGet(const char* url) {
   Serial.printf("  action   %s\n", at("AT+HTTPACTION=0", 3000).c_str());
   String urc;
   uint32_t start = millis();
-  while (millis() - start < 60000 && urc.indexOf("+HTTPACTION:") < 0) {
+  // The SIM800L's own HTTP timeout is longer than 60 s, so wait long enough to see its verdict.
+  while (millis() - start < 150000 && urc.indexOf("+HTTPACTION:") < 0) {
     while (sim.available()) urc += char(sim.read());
     delay(10);
   }
+  uint32_t took = millis() - start;
+  delay(500);  // the status code and length arrive just after "+HTTPACTION:"
+  while (sim.available()) urc += char(sim.read());
   urc.trim();
   urc.replace("\r\n", " | ");
-  Serial.printf("  result   %s (%lu ms)\n", urc.length() ? urc.c_str() : "(nothing in 60 s)", millis() - start);
+  Serial.printf("  result   %s (%lu ms)\n", urc.length() ? urc.c_str() : "(nothing in 150 s)", took);
   Serial.printf("  read     %s\n", at("AT+HTTPREAD", 5000).c_str());
   Serial.printf("  term     %s\n", at("AT+HTTPTERM").c_str());
 }
@@ -230,7 +239,9 @@ void httpGet(const char* url) {
 void checkHttp() {
   resetModem();
   checkGprs();
+  httpGet("http://example.com/");       // control: a well-known public site
   httpGet("http://169.58.147.190/");  // raw IP: Traefik answers 404, which still proves connectivity
+  return;
   const char* url = "http://169-58-147-190.sslip.io/d/v1/time";
   Serial.printf("\nHTTP GET %s\n", url);
   Serial.printf("  term     %s\n", at("AT+HTTPTERM", 1000).c_str());
