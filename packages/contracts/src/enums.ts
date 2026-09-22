@@ -142,6 +142,8 @@ export const NOTIFICATION_KINDS = [
   'CONTACT_CALL',
   'DRIVER_PROMPT',
   'OWNER_PUSH',
+  // The bike texts the rider too, so the question reaches a phone whose app is closed.
+  'DRIVER_SMS',
 ] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;

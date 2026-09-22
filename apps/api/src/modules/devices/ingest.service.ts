@@ -703,7 +703,13 @@ export class DeviceIngestService {
 
     const incident = await prisma.incident.findFirst({
       where: { id: eventId, deviceId: device.id },
-      select: { id: true, ownerId: true, ownerPhoneSnapshot: true, contactPhoneSnapshot: true },
+      select: {
+        id: true,
+        ownerId: true,
+        ownerPhoneSnapshot: true,
+        contactPhoneSnapshot: true,
+        rental: { select: { driverPhoneSnapshot: true } },
+      },
     });
     if (!incident) throw new AppError('NOT_FOUND', 'Incident not found for this device.');
 
@@ -712,7 +718,9 @@ export class DeviceIngestService {
         ? incident.ownerPhoneSnapshot
         : body.kind === 'CONTACT_SMS' || body.kind === 'CONTACT_CALL'
           ? incident.contactPhoneSnapshot
-          : null;
+          : body.kind === 'DRIVER_SMS'
+            ? (incident.rental?.driverPhoneSnapshot ?? null)
+            : null;
 
     const state = await prisma.$transaction(async (tx) => {
       const { id } = await ensureNotification(tx, {

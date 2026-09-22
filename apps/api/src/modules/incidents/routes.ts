@@ -497,7 +497,14 @@ const buildTimeline = (
 
 /** NFR-04: never claim delivery the modem did not report. */
 const describeAttempt = (kind: string, state: string, detail: string | null): string => {
-  const who = kind === 'OWNER_SMS' ? 'Owner SMS' : kind === 'CONTACT_SMS' ? 'Emergency contact SMS' : kind;
+  const who =
+    kind === 'OWNER_SMS'
+      ? 'Owner SMS'
+      : kind === 'CONTACT_SMS'
+        ? 'Emergency contact SMS'
+        : kind === 'DRIVER_SMS'
+          ? 'Rider SMS'
+          : kind;
   switch (state) {
     case 'QUEUED':
       return `${who} queued on the bike`;

@@ -444,6 +444,48 @@ describe('§5.3.7 notification reporting', () => {
     });
     expect(after.state).toBe('AT_SUBMITTED');
   });
+
+  it('records the rider SMS against the rider snapshot, masked, and says so on the timeline', async () => {
+    const owner = await registerUser(ctx, 'OWNER');
+    const driver = await createReadyDriver(ctx);
+    const device = await createDevice(ctx);
+    const bikeId = await pairDeviceToBike(ctx, owner, device);
+    const { body } = await assignRental(ctx, owner, bikeId, driver.id);
+    await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/rentals/${body.id as string}/force-activate`,
+      headers: auth(owner.accessToken),
+      payload: { confirm: true },
+    });
+    const eventId = randomUUID();
+    await ctx.app.inject(
+      signedRequest(ctx, device, {
+        method: 'POST',
+        path: `/d/v1/incidents/${eventId}`,
+        body: incidentBody(ctx, { eventId, rentalId: body.id as string, assignmentVersion: body.assignmentVersion as number }),
+      }),
+    );
+
+    const sent = await ctx.app.inject(
+      signedRequest(ctx, device, {
+        method: 'POST',
+        path: `/d/v1/incidents/${eventId}/notifications`,
+        body: { schema: 1, kind: 'DRIVER_SMS', attemptNo: 1, state: 'AT_SUBMITTED', detail: '+CMGS: 7', deviceTime: ctx.clock.now().toISOString() },
+      }),
+    );
+    expect(sent.statusCode).toBe(200);
+
+    const rental = await ctx.prisma.rental.findUniqueOrThrow({ where: { id: body.id as string } });
+    const notification = await ctx.prisma.notification.findFirstOrThrow({ where: { incidentId: eventId, kind: 'DRIVER_SMS' } });
+    expect(notification.state).toBe('AT_SUBMITTED');
+    // Masked (§5.7.3), and it is the rider's number from the rental snapshot.
+    expect(notification.recipientMasked).toContain('•');
+    expect(notification.recipientMasked?.slice(-4)).toBe(rental.driverPhoneSnapshot?.slice(-4));
+
+    const detail = await ctx.app.inject({ method: 'GET', url: `/api/v1/incidents/${eventId}`, headers: auth(owner.accessToken) });
+    const timeline = (detail.json().timeline as { text: string }[]).map((entry) => entry.text).join(' | ');
+    expect(timeline).toContain('Rider SMS submitted to the network');
+  });
 });
 
 describe('§4.4.3 chunked image upload', () => {

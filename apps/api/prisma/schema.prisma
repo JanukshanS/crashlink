@@ -121,6 +121,7 @@ enum NotificationKind {
   CONTACT_CALL
   DRIVER_PROMPT
   OWNER_PUSH
+  DRIVER_SMS
 }
 
 enum NotificationState {

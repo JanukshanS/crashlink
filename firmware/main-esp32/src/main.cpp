@@ -1255,6 +1255,13 @@ void runIncident(const String& type, bool emergency, bool ign, float preSpeed, b
                        locationText(g, occurredAt) + (emergency && !sos ? " Rider asked if safe." : "");
     if (!emergency) ownerText = String("CRASHLINK ") + bike + ": " + smsLabel(type) + " " + when + " " + maps;
     smsWithReporting(eventId, "OWNER_SMS", assignment.ownerPhone, ownerText);
+    // The app only asks while it is open (no push in the MVP), so the bike also
+    // asks the rider by SMS - it reaches a phone whose app is closed.
+    if (emergency && !sos && assignment.driverPhone.length()) {
+      smsWithReporting(eventId, "DRIVER_SMS", assignment.driverPhone,
+                       String("CRASHLINK: ") + smsLabel(type) + " on " + bike + " at " + when.substring(0, 5) +
+                           ". Are you safe? Press SAFE on the bike or open CrashLink. No reply in 60s alerts your contact.");
+    }
     if (sos) {
       smsWithReporting(eventId, "CONTACT_SMS", assignment.contactPhone,
                        String("CRASHLINK: ") + shortName(assignment.driverName) + " pressed SOS " + when + " " + maps + " Ambulance 1990");
