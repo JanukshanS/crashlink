@@ -26,7 +26,8 @@ export interface PendingQuestion {
  *  - `tooLate`   "Too late — emergency contact already notified at …"
  *  - `offline`   "Cannot reach server — retrying…"
  */
-export type ResponseStatus = 'idle' | 'sending' | 'accepted' | 'synced' | 'tooLate' | 'offline';
+/** `resolvedElsewhere`: someone else answered SAFE (e.g. the bike's button) - nothing was escalated. */
+export type ResponseStatus = 'idle' | 'sending' | 'accepted' | 'synced' | 'tooLate' | 'resolvedElsewhere' | 'offline';
 
 export interface EmergencyState {
   question: PendingQuestion | null;
@@ -75,7 +76,8 @@ export const useEmergencyStore = create<EmergencyState>((set, get) => ({
   setChoice: (choice, idempotencyKey) => set({ choice, idempotencyKey }),
 
   setLosingDecision: (decision, decidedAt) =>
-    set({ losingDecision: { decision, decidedAt }, status: 'tooLate' }),
+    // A SAFE decided elsewhere is not "too late" - nobody was notified (NFR-04 honesty).
+    set({ losingDecision: { decision, decidedAt }, status: decision === 'SAFE' ? 'resolvedElsewhere' : 'tooLate' }),
 
   resolve: (incidentId) =>
     set((state) => ({

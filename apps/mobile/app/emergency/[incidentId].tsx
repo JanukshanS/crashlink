@@ -65,7 +65,7 @@ export default function EmergencyScreen() {
   );
 
   const answered = status === 'accepted' || status === 'synced';
-  const finished = answered || status === 'tooLate';
+  const finished = answered || status === 'tooLate' || status === 'resolvedElsewhere';
 
   // --- countdown on server time (§2.4) -------------------------------------
   useEffect(() => {
@@ -100,7 +100,17 @@ export default function EmergencyScreen() {
 
     return () => {
       Vibration.cancel();
-      player.current?.remove();
+      // Pause before releasing: on Android a released expo-audio player that was
+      // never paused keeps looping - seen on the real phones after SAFE.
+      const current = player.current;
+      if (current) {
+        try {
+          current.pause();
+        } catch {
+          // already released
+        }
+        current.remove();
+      }
       player.current = null;
     };
   }, [finished]);
@@ -152,12 +162,24 @@ export default function EmergencyScreen() {
           }),
           spinner: false,
         };
+      case 'resolvedElsewhere':
+        return { text: t('emergency.resolvedOnBike'), spinner: false };
       case 'offline':
         return { text: t('emergency.cannotReach'), spinner: true };
       default:
         return null;
     }
   }, [status, t, losingDecision, incident.data?.decidedAt]);
+
+  // Decided somewhere else (the bike's SAFE/SOS button, or the server's TIMEOUT)
+  // while this screen was still asking. The socket usually says so; this 5 s
+  // incident poll is the backstop, so the alarm can never ring on forever.
+  const serverDecision = incident.data?.decision;
+  useEffect(() => {
+    if (status !== 'idle' && status !== 'offline') return;
+    if (!serverDecision || serverDecision === 'PENDING' || serverDecision === 'NOT_APPLICABLE') return;
+    useEmergencyStore.getState().setLosingDecision(serverDecision, incident.data?.decidedAt ?? null);
+  }, [status, serverDecision, incident.data?.decidedAt]);
 
   const detail = incident.data;
   // §5.7.3 masks the snapshot in driver-facing views, and a masked number

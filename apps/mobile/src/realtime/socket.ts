@@ -142,7 +142,7 @@ export const connectSocket = ({ accessToken, queryClient, role }: ConnectOptions
 
     // Someone or something else decided this incident - stop asking the rider.
     const emergency = useEmergencyStore.getState();
-    if (emergency.question?.incidentId === payload.incidentId && emergency.status === 'idle') {
+    if (emergency.question?.incidentId === payload.incidentId && (emergency.status === 'idle' || emergency.status === 'offline')) {
       emergency.setLosingDecision(payload.decision, payload.decidedAt);
     }
   });

@@ -18,7 +18,8 @@
     "sosTitle": "Help is being requested",
     "sosBody": "You pressed SOS. Your emergency contact is being notified by the bike.",
     "resolvedSafe": "Marked safe. Thanks for letting us know.",
-    "notEmergencyService": "This is a prototype, not an emergency service."
+    "notEmergencyService": "This is a prototype, not an emergency service.",
+    "resolvedOnBike": "Marked safe on the bike. Nobody else will be notified."
   },
   "auth": {
     "welcomeTitle": "CrashLink",
